@@ -9,7 +9,7 @@ Content of this repository:
 - pNN.ipynb -> Main jupyter notebook containing the code for the parametric Neural Network (the problem is here!)
 - pyReader.ipynb -> This jupyter is the "next step" when the network starts working, making the inference on real data;
 
-To download the datasets, click [here](https://cernbox.cern.ch/index.php/s/zQNB8laVAFjyb4N) (size approx 1.8GB), and put the folder in the repo directory.
+To download the datasets, click [here](https://cernbox.cern.ch/index.php/s/zQNB8laVAFjyb4N) (size approx 1.8GB), and put the folder in the repo directory with the name **data**.
 
 Content of the data folder:
 

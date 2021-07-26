@@ -2,12 +2,15 @@ import os
 import numpy as np
 import pandas as pd
 
-from script import SEED, free_mem
+from script import free_mem
+from script import utils
 
 from typing import Union
 
 
 class Hepmass:
+    """Class that wraps the HEPMASS dataset utilized by Baldi et al. 2016"""
+
     TRAIN_PATH = os.path.join('data', 'paper', 'all_train.csv')
     TEST_PATH = os.path.join('data', 'paper', 'all_test.csv')
 
@@ -24,13 +27,16 @@ class Hepmass:
         self.unique_mass = None
         
     def load(self, path: str, mass: Union[np.ndarray, tuple, list] = None, test_size=0.2, 
-             fit_scaler=True, seed=SEED):
+             fit_scaler=True, robust=False, seed=utils.SEED):
         """Loads the dataset:
             - selects feature columns,
             - scales the data if a sklearn.Scaler was provided,
             - splits all the data into train and test sets,
             - allows to select which mass to keep.
+            - if `robust=True`, outliers are clipped within [Q1 - 1.5 * IQR, Q3 + 1.5 * IQR].
         """
+        self.seed = seed
+        
         if self.ds is not None:
             return
 
@@ -48,34 +54,48 @@ class Hepmass:
             self._select_mass(mass)
             free_mem()
 
+        self.unique_mass = sorted(self.ds.mass.unique())
+
+        if robust:
+            print('clipping outliers..')
+            self._clip_outliers()
+
         # select series
         self.features = self.ds[columns['feature']]
         self.labels = self.ds[columns['label']]
         self.masses = self.ds[columns['mass']]
-        self.unique_mass = sorted(self.ds.mass.unique())
         
         # fit scaler
         if fit_scaler and (self.x_scaler is not None):
+            print('fitting feature scaler..')
             self.x_scaler.fit(self.features.values)
         
         if fit_scaler and (self.m_scaler is not None):
+            print('fitting mass scaler..')
             self.m_scaler.fit(np.reshape(self.unique_mass, newshape=(-1, 1)))
         
         print('dataset loaded.')
         free_mem()
     
-    def get(self, mask=None) -> tuple:
+    def get(self, sample=None, mask=None) -> tuple:
         if mask is not None:
-            features = self.features[mask].values
-            labels = self.labels[mask].values
-            mass = self.masses[mask].values
+            features = self.features[mask]
+            labels = self.labels[mask]
+            mass = self.masses[mask]
         else:
-            features = self.features.values
-            labels = self.labels.values
-            mass = self.masses.values
+            features = self.features
+            labels = self.labels
+            mass = self.masses
 
-        mass = mass.reshape((-1, 1))
-        labels = labels.reshape((-1, 1))
+        # sample a subset of the selected data
+        if isinstance(sample, float):
+            features = features.sample(frac=sample, random_state=self.seed)
+            labels = labels.loc[features.index]
+            mass = mass.loc[features.index]
+
+        features = features.values
+        mass = mass.values.reshape((-1, 1))
+        labels = labels.values.reshape((-1, 1))
 
         if self.x_scaler is not None:
             features = self.x_scaler.transform(features)
@@ -89,8 +109,8 @@ class Hepmass:
         free_mem()
         return x, y
     
-    def get_by_mass(self, mass: float) -> dict:
-        return self.get(mask=self.ds.mass == mass)
+    def get_by_mass(self, mass: float, sample=None) -> dict:
+        return self.get(mask=self.ds.mass == mass, sample=sample)
     
     def _select_mass(self, mass):
         """Selects only the given mass from the dataframe"""
@@ -99,3 +119,29 @@ class Hepmass:
             mask = (self.ds.mass >= m - 1.0) & (self.ds.mass < m + 1.0)
 
             self.ds.drop(index=self.ds[mask].index, inplace=True)
+
+    def _clip_outliers(self):
+        for mass in self.unique_mass:
+            for col in self.columns['feature']:
+                for label in [0.0, 1.0]:
+                    mask = (self.ds['mass'] == mass) & (self.ds[self.columns['label']] == label)
+                    
+                    # select data
+                    serie = self.ds.loc[mask, col]
+                    
+                    # get quantiles
+                    # source: https://paolapozzolo.it/boxplot/
+                    stats = serie.describe()
+                    
+                    q1 = stats['25%']
+                    q3 = stats['75%']
+                    iqr = q3 - q1  # inter-quartile range
+                    
+                    low = q1 - 1.5 * iqr
+                    upp = q3 + 1.5 * iqr
+                    
+                    # clip
+                    serie.clip(lower=low, upper=upp, inplace=True)
+                    
+                    # apply changes
+                    self.ds.loc[mask, col] = serie

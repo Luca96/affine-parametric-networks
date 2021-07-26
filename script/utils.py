@@ -29,6 +29,21 @@ def tf_global_norm(tensors: list, **kwargs):
     return tf.sqrt(tf.reduce_sum([norm * norm for norm in norms]))
 
 
+def tf_jensen_shannon_divergence(p, q):
+    """Jensen-Shannon Divergence: JS(p || q) = 1/2 KL(p || m) + 1/2 KL(q || m)
+        - Source: https://en.wikipedia.org/wiki/Jensen%E2%80%93Shannon_divergence
+    """
+    m = (p + q) * 0.5
+    
+    return 0.5 * tf.keras.losses.kld(p, m) + \
+           0.5 * tf.keras.losses.kld(q, m)
+
+
+def tf_jensen_shannon_distance(p, q):
+    jsd = tf_jensen_shannon_divergence(p, q)
+    return tf.sqrt(tf.math.abs(jsd))
+
+
 def free_mem():
     return gc.collect()
 
@@ -61,3 +76,13 @@ def pca_plot(pca: PCA, title='PCA', **kwargs):
     plt.ylabel('Explained variance ratio')
     plt.title(title)
     plt.show()
+
+
+def assert_2d_array(x, last_dim=2):
+    if x is None:
+        return
+    
+    x = np.asarray(x)
+    
+    assert len(x.shape) == 2
+    assert x.shape[-1] == last_dim

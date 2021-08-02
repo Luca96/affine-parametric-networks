@@ -5,8 +5,7 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
-# import script.evaluation.pnn
-from script.evaluation import pnn
+from script.evaluation import hepmass
 
 from script import utils
 from script.utils import assert_2d_array
@@ -73,15 +72,22 @@ def split_data(data: tuple, num_folds=10, seed=utils.SEED):
     return folds
 
 
-def auc_with_error(model, dataset, auc_index: int, mass_intervals: Union[np.ndarray, List[tuple]], 
-                   figsize=(26, 20), num_folds=10, verbose=0, silent=False, **kwargs):
-    """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
+def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: Union[np.ndarray, List[tuple]] = None,
+                      figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+    """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
 
+    style = style.lower()
+    assert style in ['bar', 'dot', 'fill']
+
+    if mass_intervals is None:
+        mass_intervals = dataset.current_mass_intervals
+
+    metric_name = metric
     mass = mean_mass(mass_intervals)
-    auc = {fold: [] for fold in range(num_folds)}
-    
+    metric = {fold: [] for fold in range(num_folds)}
+
     for interval in mass_intervals:
         x, y = dataset.get_by_mass(interval, **kwargs)
         
@@ -90,43 +96,78 @@ def auc_with_error(model, dataset, auc_index: int, mass_intervals: Union[np.ndar
         for i, fold in enumerate(folds):
             score = model.evaluate(x=fold[0], y=fold[1], batch_size=128, verbose=verbose)
 
-            auc_score = round(score[auc_index], 4)
-            auc[i].append(check_underflow(auc_score, score[1]))
+            metric_score = round(score[index], 4)
+            metric[i].append(check_underflow(metric_score, score[1]))  # use accuracy as reference
         
         if not silent:
             print(f'Mass:{np.round(interval, 2)} -> {round(np.mean(interval))}')
     
-    # compute average AUC (over folds)
-    avg_auc = []
+    # compute average metric (over folds)
+    avg_metric = []
     
     for i, _ in enumerate(mass):
         score = 0.0
         
         for fold in range(num_folds):
-            score += auc[fold][i]
+            score += metric[fold][i]
         
-        avg_auc.append(round(score / num_folds, 4))
-    
-    plt.title(f'AUC vs Mass')
-    plt.ylabel('AUC')
+        avg_metric.append(round(score / num_folds, 4))
+
+    plt.title(f'{metric_name} vs Mass')
+    plt.ylabel(metric_name)
     plt.xlabel('Mass')
     
-    plt.plot(mass, avg_auc, label='avg')
-    plt.scatter(mass, avg_auc, s=50, color='b')
-    
-    for i in range(num_folds):
-        plt.scatter(mass, auc[i], s=30, color='r')
+    if style == 'dot': 
+        plt.plot(mass, avg_metric, label='avg')
+        plt.scatter(mass, avg_metric, s=50, color='b')
+        
+        for i in range(num_folds):
+            plt.scatter(mass, metric[i], s=30, color='r')
+    else:
+        values = np.array(list(metric.values()))
+        avg_metric = np.array(avg_metric)
+
+        if style == 'bar':
+            min_err = avg_metric - np.min(values, axis=0)
+            max_err = np.max(values, axis=0) - avg_metric
+
+            plt.errorbar(mass, avg_metric, yerr=np.stack([min_err, max_err]), fmt='ob', 
+                         capsize=5.0, elinewidth=1, capthick=1)
+            plt.plot(mass, avg_metric, label='avg')
+        else:
+            min_err = np.min(values, axis=0)
+            max_err = np.max(values, axis=0)
+
+            plt.fill_between(mass, min_err, max_err, color='gray', alpha=0.2)
+
+            plt.plot(mass, avg_metric, label='avg')
+            plt.scatter(mass, avg_metric, s=50, color='b')
     
     plt.show()
-    return auc
+
+    if return_average:
+        return np.mean(list(metric.values()), axis=0)
+
+    return metric
 
 
-def auc_vs_no_mass(model, dataset, auc_index: int, mass_intervals: Union[np.ndarray, List[tuple]], 
-                   fake_mass=[], figsize=(26, 20), verbose=0, silent=False, sample_frac=None, **kwargs):
+def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None,
+                   figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+    """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
+
+    return metric_with_error(model, dataset, metric='AUC', index=index, mass_intervals=mass_intervals, figsize=figsize,
+                             num_folds=num_folds, verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
+
+
+def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, 
+                   fake_mass=[], figsize=(26, 20), verbose=0, silent=False, sample_frac=None, avg_auc=None, **kwargs):
     """Computes AUC by faking the true mass"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
     
+    if mass_intervals is None:
+        mass_intervals = dataset.current_mass_intervals
+
     # scale mass
     if dataset.m_scaler is not None:
         scaled_fake_mass = dataset.m_scaler.transform(np.reshape(fake_mass, newshape=(-1, 1)))
@@ -153,6 +194,9 @@ def auc_vs_no_mass(model, dataset, auc_index: int, mass_intervals: Union[np.ndar
     
     plt.title(f'AUC vs Mass')
     
+    if isinstance(avg_auc, (list, np.ndarray)):
+        plt.plot(mass, avg_auc, label='auc')
+
     for i, fake_m in enumerate(fake_mass):
         k = scaled_fake_mass[i]
         
@@ -167,12 +211,15 @@ def auc_vs_no_mass(model, dataset, auc_index: int, mass_intervals: Union[np.ndar
     return auc
 
 
-def auc_vs_mass_no_features(model, dataset, auc_index: int, mass_intervals: Union[np.ndarray, List[tuple]], 
+def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, 
                             figsize=(26, 20), features={}, verbose=1, silent=False, sample_frac=None, 
                             transformer=None, transform_before=True):
     """Computes AUC by dropping one or more features"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
+
+    if mass_intervals is None:
+        mass_intervals = dataset.current_mass_intervals
 
     mass = mean_mass(mass_intervals)
     auc = {k: [] for k in features.keys()}
@@ -214,4 +261,55 @@ def auc_vs_mass_no_features(model, dataset, auc_index: int, mass_intervals: Unio
     
     plt.legend()
     plt.show()
+    return auc
+
+
+def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_intervals: Union[np.ndarray, List[tuple]] = None,
+                        figsize=(26, 20), verbose=0, silent=False, reference=None, **kwargs):
+    """Computes AUC on disjoint folds of the given data, quantifying how much the mass helps the classification"""
+    assert_2d_array(mass_intervals)
+    assert isinstance(mass, (list, tuple, np.ndarray))
+
+    plt.figure(figsize=figsize)
+
+    if mass_intervals is None:
+        mass_intervals = dataset.current_mass_intervals
+
+    if dataset.m_scaler is not None:
+        scaled_mass = dataset.m_scaler.transform(np.reshape(mass, newshape=(-1, 1)))
+        scaled_mass = np.reshape(scaled_mass, newshape=[-1])
+    else:
+        scaled_mass = mass
+
+    avg_mass = mean_mass(mass_intervals)
+    auc = {m: [] for m in scaled_mass}
+    
+    for interval in mass_intervals: 
+        x, y = dataset.get_by_mass(interval, **kwargs)
+        
+        for j, m in enumerate(scaled_mass):    
+            x['m'] = np.ones_like(x['m']) * m
+
+            score = model.evaluate(x, y, batch_size=128, verbose=verbose)
+
+            auc_score = round(score[auc_index], 4)
+            auc[m].append(check_underflow(auc_score, score[1]))
+            
+        if not silent:
+            print(f'Mass:{np.round(interval, 2)} -> {round(np.mean(interval))}')
+    
+    plt.title(f'AUC vs Mass')
+    plt.ylabel('AUC')
+    plt.xlabel('Mass')
+    
+    if isinstance(reference, (list, tuple, np.ndarray)):
+        plt.plot(avg_mass, reference, label='auc')
+
+    for i, m in enumerate(scaled_mass):
+        plt.plot(avg_mass, auc[m], label=f'm-{round(mass[i], 1)}')
+        plt.scatter(avg_mass, auc[m], s=50)
+
+    plt.legend(loc='best')
+    plt.show()
+
     return auc

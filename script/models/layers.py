@@ -106,11 +106,13 @@ class MassLossLayer(Layer):
         else:
             self.loss_fn = lambda x: tf.square(x)
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         labels, pred_mass, true_mass = inputs
         
-        loss = self.alpha * self.loss_fn(true_mass - pred_mass)
-        self.add_loss(tf.reduce_mean(loss))
+        if training:
+            loss = self.alpha * self.loss_fn(true_mass - pred_mass)
+            self.add_loss(tf.reduce_mean(loss))
+
         return labels
 
 

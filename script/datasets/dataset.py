@@ -91,7 +91,7 @@ class Dataset:
         self.weights_df = None
     
     def load(self, mass_intervals: Union[np.ndarray, List[tuple]] = None, test_size=0.2, change_bkg_mass=False,
-             feature_columns=None, encoding=None, engine=None, multi_class=False):
+             feature_columns=None, robust=False, multi_class=False):
         """Loads the signal+background data:
             - selects feature columns,
             - scales the data if a sklearn.Scaler was provided,
@@ -106,12 +106,10 @@ class Dataset:
             return
 
         print('[signal] loading...')
-        self.signal = pd.read_csv(self.SIGNAL_PATH, dtype=np.float32, na_filter=False, 
-                                  encoding=encoding, engine=engine)
+        self.signal = pd.read_csv(self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
         
         print('[background] loading...')
-        self.background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False,
-                                      encoding=encoding, engine=engine)
+        self.background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
         
         self.ds = pd.concat([self.signal, self.background])
         
@@ -131,6 +129,9 @@ class Dataset:
             print('[Dataset] setting bkg = sig...')
             self._bkg_mass_as_signal()
             self.changed_bkg_mass = True
+
+            # last mass interval is apparently lost
+            self.current_mass_intervals = self.current_mass_intervals[:-1]
         
         # from binary to multi-class classification
         if multi_class:
@@ -149,14 +150,21 @@ class Dataset:
                        label=self.ds.columns[-1], mass=self.ds.columns[0])
         self.columns = columns
         
+        # remove outliers
+        if robust:
+            print('[Dataset] clipping outliers..')
+            self._clip_outliers()
+        
         # train-test split:
         self.train_df, self.test_df = train_test_split(self.ds, test_size=test_size, 
                                                        random_state=self.seed)
         # fit scaler (on "whole" training-set)
         if self.x_scaler is not None:
+            print('[Dataset] fitting feature scaler..')
             self.x_scaler.fit(self.train_df[columns['feature']].values)
         
         if self.m_scaler is not None:
+            print('[Dataset] fitting mass scaler..')
             self.m_scaler.fit(self.train_df[columns['mass']].unique().reshape((-1, 1)))
         
         # drop some mass
@@ -250,7 +258,7 @@ class Dataset:
         free_mem()
     
     def _bkg_mass_as_signal(self):
-        bkg_mass = self.ds[data.ds['type'] == 0.0]['mA']
+        bkg_mass = self.ds[self.ds['type'] == 0.0]['mA']
         sig_mass = self.unique_signal_mass + [1100.0]
         
         for i in range(len(sig_mass) - 1):
@@ -277,3 +285,29 @@ class Dataset:
             self.ds.loc[mask & bkg_mask, 'type'] = label
             
         self.num_classes = num_intervals * 2
+
+    def _clip_outliers(self):
+        for (low, upp) in self.current_mass_intervals:
+            for col in self.columns['feature']:
+                for label in [0.0, 1.0]:
+                    mask = (self.ds['mA'] >= low) & (self.ds['mA'] < upp) & \
+                           (self.ds[self.columns['label']] == label)
+                    
+                    # select data
+                    serie = self.ds.loc[mask, col]
+                    
+                    # get quantiles
+                    stats = serie.describe()
+                    
+                    q1 = stats['25%']
+                    q3 = stats['75%']
+                    iqr = q3 - q1  # inter-quartile range
+                    
+                    low = q1 - 1.5 * iqr
+                    upp = q3 + 1.5 * iqr
+                    
+                    # clip
+                    serie.clip(lower=low, upper=upp, inplace=True)
+                    
+                    # apply changes
+                    self.ds.loc[mask, col] = serie

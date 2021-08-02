@@ -12,13 +12,17 @@ from script.models import PNN
 from typing import Union, List
 
 
-def auc_with_error(model: PNN, dataset: Hepmass, auc_index: int, figsize=(26, 20), num_folds=10, 
-                   verbose=0, silent=False, **kwargs):
-    """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
+def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, figsize=(26, 20), num_folds=10, 
+                      verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+    """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     plt.figure(figsize=figsize)
 
+    style = style.lower()
+    assert style in ['bar', 'dot', 'fill']
+    
+    metric_name = metric
     mass = dataset.unique_mass
-    auc = {fold: [] for fold in range(num_folds)}
+    metric = {fold: [] for fold in range(num_folds)}
     
     for m in mass:
         x, y = dataset.get_by_mass(m, **kwargs)
@@ -28,35 +32,67 @@ def auc_with_error(model: PNN, dataset: Hepmass, auc_index: int, figsize=(26, 20
         for i, fold in enumerate(folds):
             score = model.evaluate(x=fold[0], y=fold[1], batch_size=128, verbose=verbose)
 
-            auc_score = round(score[auc_index], 4)
-            auc[i].append(eval_utils.check_underflow(auc_score, score[1]))
+            metric_score = round(score[index], 4)
+            metric[i].append(eval_utils.check_underflow(metric_score, score[1]))
         
         if not silent:
             print(f'Mass: {math.ceil(m)} done.')
     
-    # compute average AUC (over folds)
-    avg_auc = []
+    # compute average metric (over folds)
+    avg_metric = []
     
     for i, _ in enumerate(mass):
         score = 0.0
         
         for fold in range(num_folds):
-            score += auc[fold][i]
+            score += metric[fold][i]
         
-        avg_auc.append(round(score / num_folds, 4))
+        avg_metric.append(round(score / num_folds, 4))
     
-    plt.title(f'AUC vs Mass')
-    plt.ylabel('AUC')
+    plt.title(f'{metric_name} vs Mass')
+    plt.ylabel(metric_name)
     plt.xlabel('Mass')
     
-    plt.plot(mass, avg_auc, label='avg')
-    plt.scatter(mass, avg_auc, s=50, color='b')
-    
-    for i in range(num_folds):
-        plt.scatter(mass, auc[i], s=30, color='r')
+    if style == 'dot': 
+        plt.plot(mass, avg_metric, label='avg')
+        plt.scatter(mass, avg_metric, s=50, color='b')
+        
+        for i in range(num_folds):
+            plt.scatter(mass, metric[i], s=30, color='r')
+    else:
+        values = np.array(list(metric.values()))
+        avg_auc = np.array(avg_metric)
+
+        if style == 'bar':
+            min_err = avg_metric - np.min(values, axis=0)
+            max_err = np.max(values, axis=0) - avg_metric
+
+            plt.errorbar(mass, avg_metric, yerr=np.stack([min_err, max_err]), fmt='ob', 
+                         capsize=5.0, elinewidth=1, capthick=1)
+            plt.plot(mass, avg_metric, label='avg')
+        else:
+            min_err = np.min(values, axis=0)
+            max_err = np.max(values, axis=0)
+
+            plt.fill_between(mass, min_err, max_err, color='gray', alpha=0.2)
+
+            plt.plot(mass, avg_metric, label='avg')
+            plt.scatter(mass, avg_metric, s=50, color='b')
     
     plt.show()
-    return auc
+
+    if return_average:
+        return np.mean(list(metric.values()), axis=0)
+    
+    return metric
+
+
+def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(26, 20), num_folds=10, verbose=0, 
+                   silent=False, style='bar', return_average=True, **kwargs):
+    """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
+
+    return metric_with_error(model, dataset, metric='AUC', index=index, figsize=figsize, num_folds=num_folds, 
+                             verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
 
 
 def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index: int, fake_mass=[], figsize=(26, 20), 

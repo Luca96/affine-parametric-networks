@@ -1,6 +1,7 @@
 import gc
 import random
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -86,3 +87,23 @@ def assert_2d_array(x, last_dim=2):
     
     assert len(x.shape) == 2
     assert x.shape[-1] == last_dim
+
+
+def plot_history(history, cols: int, rows: int, title: str, figsize=(30, 20), **kwargs):
+    fig, axes = plt.subplots(cols, rows, figsize=figsize)
+    fig.suptitle(title)
+    
+    df = pd.DataFrame(history.history)
+
+    val_columns = list(filter(lambda x: 'val_' in x, df.columns))
+    plt_columns = list(map(lambda x: x[x.find('_') + 1:], val_columns))
+    
+    for i, axis in enumerate(axes.flat):
+        cols = [plt_columns[i], val_columns[i]]
+        
+        axis.plot(df[cols])
+        axis.set_title(cols[0])
+        axis.legend(cols, loc='best')
+    
+        if i + 1 >= len(val_columns):
+            break

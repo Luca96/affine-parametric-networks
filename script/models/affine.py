@@ -11,27 +11,12 @@ from script.models.layers import AffineConditioning, MassEmbeddingLayer
 from typing import Union, List
 
 
-class WrappedAUC:
-    def __init__(self, name='wrapped_auc'):
-        self.auc = tf.keras.metrics.AUC(name=name)
-
-    def update_state(self, x, y):
-        self.auc.update_state(x, y)
-
-    def result(self):
-        return self.auc.result()
-
-    def reset_states(self):
-        self.auc.reset_states()
-
-
-
 class AffinePNN(PNN):
     """A PNN that uses affine-conditioning for all layers"""
     
     def __init__(self, *args, mass_weights=None, mass_scaler=None, mass_values=None, adversarial=0.0,
                  mass_intervals: Union[np.ndarray, List[tuple]] = None, track_mass_reliance=False, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, track_mass_reliance=track_mass_reliance, **kwargs)
         
         if (self.num_classes > 2) and isinstance(mass_values, (tuple, list, np.ndarray)):
             if adversarial != 0.0:
@@ -71,13 +56,6 @@ class AffinePNN(PNN):
         else:
             self.mass_weights = None
         
-        # mass reliance
-        if track_mass_reliance:
-            self.should_track_mass_reliance = True
-            self.auc = WrappedAUC()
-        else:
-            self.should_track_mass_reliance = False
-
     def structure(self, shapes: dict, activation='relu', dropout=0.0, feature_noise=0.0, mass_noise=0.0, 
                   embed=None, affine={}, batch_normalization=False, shared=False, **kwargs) -> tuple:
         inputs = self.inputs_from_shapes(shapes)
@@ -165,10 +143,10 @@ class AffinePNN(PNN):
         debug['weight-norm'] = weight_norm
         debug['reg-losses'] = tf.reduce_sum(self.losses)
         debug['adversarial-loss'] = adv_loss
-    
+
         if self.should_track_mass_reliance:
             debug['mass-reliance'] = self.get_mass_reliance(x, true=labels)
-
+        
         return debug
     
     def adversarial_loss(self, features, prob, adversarial_mass):
@@ -209,13 +187,3 @@ class AffinePNN(PNN):
             mass_weights = tf.reduce_mean(mass_weights, axis=-1)[:, None]  # handles multi-class labels
             
         return mass_weights
-
-    def get_mass_reliance(self, x: dict, true):
-        inputs = dict(x=tf.zeros_like(x['x']), m=x['m'])
-        pred = self(inputs, training=False)
-
-        self.auc.update_state(true, pred)
-        auc = tf.reduce_mean(self.auc.result())
-        self.auc.reset_states()
-
-        return 2 * tf.math.abs(auc - 0.5)

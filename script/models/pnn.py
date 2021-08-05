@@ -13,10 +13,24 @@ from script.models.layers import Linear
 from typing import Dict
 
 
+class WrappedAUC:
+    def __init__(self, name='wrapped_auc'):
+        self.auc = tf.keras.metrics.AUC(name=name)
+
+    def update_state(self, x, y):
+        self.auc.update_state(x, y)
+
+    def result(self):
+        return self.auc.result()
+
+    def reset_states(self):
+        self.auc.reset_states()
+
+
 class PNN(tf.keras.Model):
     """A Parametric Neural Network (PNN) model"""
     
-    def __init__(self, input_shapes: dict, num_classes=2, **kwargs):
+    def __init__(self, input_shapes: dict, num_classes=2, track_mass_reliance=False, **kwargs):
         assert num_classes >= 2
 
         name = kwargs.pop('name', 'ParametricNN')
@@ -26,6 +40,13 @@ class PNN(tf.keras.Model):
         super().__init__(inputs, outputs, name=name)
 
         self.lr = None
+
+        # mass reliance
+        if track_mass_reliance:
+            self.should_track_mass_reliance = True
+            self.auc = WrappedAUC()
+        else:
+            self.should_track_mass_reliance = False
         
     def compile(self, optimizer_class=Adam, loss=None, metrics=None, lr=0.001, **kwargs):
         self.lr = DynamicParameter.create(value=lr)
@@ -117,6 +138,9 @@ class PNN(tf.keras.Model):
         debug['weight-norm'] = weight_norm
         debug['reg-losses'] = tf.reduce_sum(self.losses)
         
+        if self.should_track_mass_reliance:
+            debug['mass-reliance'] = self.get_mass_reliance(x, true=labels)
+
         return debug
     
     def apply_gradients(self, tape, loss):
@@ -135,3 +159,13 @@ class PNN(tf.keras.Model):
     @staticmethod
     def inputs_from_shapes(shapes: Dict[str, tuple]) -> Dict[str, Input]:
         return {name: Input(shape=shape, name=name) for name, shape in shapes.items()}
+
+    def get_mass_reliance(self, x: dict, true):
+        inputs = dict(x=tf.zeros_like(x['x']), m=x['m'])
+        pred = self(inputs, training=False)
+
+        self.auc.update_state(true, pred)
+        auc = tf.reduce_mean(self.auc.result())
+        self.auc.reset_states()
+
+        return 2 * tf.math.abs(auc - 0.5)

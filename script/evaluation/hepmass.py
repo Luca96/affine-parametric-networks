@@ -95,7 +95,7 @@ def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(26, 20), num_
                              verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
 
 
-def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index: int, fake_mass=[], figsize=(26, 20), 
+def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index=2, fake_mass=[], figsize=(26, 20), 
                    sample_frac=None, verbose=0, silent=False):
     """Computes AUC by faking the true mass"""
     plt.figure(figsize=figsize)
@@ -140,7 +140,7 @@ def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index: int, fake_mass=[], f
     return auc
 
 
-def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index: int, figsize=(26, 20), 
+def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index=2, figsize=(26, 20), 
                             sample_frac=None, features={}, verbose=1, silent=False):
     """Computes AUC by dropping one or more features"""
     plt.figure(figsize=figsize)

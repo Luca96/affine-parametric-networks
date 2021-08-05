@@ -233,12 +233,24 @@ class Dataset:
         free_mem()
         return x, labels
     
-    def get_by_mass(self, interval: Union[list, tuple], sample=None, transformer=None) -> dict:
+    def get_by_mass(self, interval: Union[list, tuple], sample=None, transformer=None) -> tuple:
         mass_low, mass_high = interval
         
         return self.get(mask=(self.test_mass >= mass_low) & (self.test_mass < mass_high), sample=sample,
                         transformer=transformer)
     
+    def get_and_change_mass(self, interval: Union[list, tuple], mass: float, sample=None) -> tuple:
+        mass_low, mass_high = interval
+        mass_mask = (self.test_mass >= mass_low) & (self.test_mass < mass_high)
+
+        sig_mask = mass_mask & (self.test_labels == 1.0)
+        bkg_mass = mass_mask & (self.test_labels == 0.0)
+
+        x, labels = self.get(mask=sig_mask | bkg_mask, sample=sample)
+        x['m'][sig_mask] = mass
+
+        return x, labels
+
     def mass_to_categories(self, mass: list):
         """Maps each given mass into an iterval, i.e. retrieving its index to be used as category"""
         bins = tfp.stats.find_bins(tf.cast(mass, dtype=tf.float32), self.signal_mass_bins)

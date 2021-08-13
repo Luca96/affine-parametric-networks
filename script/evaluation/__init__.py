@@ -73,7 +73,7 @@ def split_data(data: tuple, num_folds=10, seed=utils.SEED):
 
 
 def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: Union[np.ndarray, List[tuple]] = None,
-                      figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+                      figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
     """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
@@ -118,8 +118,8 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
     plt.xlabel('Mass')
     
     if style == 'dot': 
-        plt.plot(mass, avg_metric, label='avg')
-        plt.scatter(mass, avg_metric, s=50, color='b')
+        plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
+        # plt.scatter(mass, avg_metric, s=50, color='b')
         
         for i in range(num_folds):
             plt.scatter(mass, metric[i], s=30, color='r')
@@ -140,10 +140,11 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
 
             plt.fill_between(mass, min_err, max_err, color='gray', alpha=0.2)
 
-            plt.plot(mass, avg_metric, label='avg')
-            plt.scatter(mass, avg_metric, s=50, color='b')
+            plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
+            # plt.scatter(mass, avg_metric, s=50, color='b')
     
-    plt.show()
+    if show:
+        plt.show()
 
     if return_average:
         return np.mean(list(metric.values()), axis=0)
@@ -151,11 +152,11 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
     return metric
 
 
-def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None,
+def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, show=True,
                    figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
 
-    return metric_with_error(model, dataset, metric='AUC', index=index, mass_intervals=mass_intervals, figsize=figsize,
+    return metric_with_error(model, dataset, metric='AUC', index=index, mass_intervals=mass_intervals, figsize=figsize, show=show,
                              num_folds=num_folds, verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
 
 
@@ -200,8 +201,8 @@ def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray
     for i, fake_m in enumerate(fake_mass):
         k = scaled_fake_mass[i]
         
-        plt.plot(mass, auc[k], label=f'm-{round(fake_m, 2)}')
-        plt.scatter(mass, auc[k], s=50)
+        plt.plot(mass, auc[k], marker='o', s=50, label=f'm-{round(fake_m, 2)}')
+        # plt.scatter(mass, auc[k], s=50)
         
     plt.legend(loc='best')
     plt.ylabel('AUC')
@@ -253,8 +254,8 @@ def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[n
     plt.title(f'AUC vs Mass')
     
     for label in features.keys():
-        plt.plot(mass, auc[label])
-        plt.scatter(mass, auc[label], s=50, label=label)
+        plt.plot(mass, auc[label], marker='o', s=50)
+        # plt.scatter(mass, auc[label], s=50, label=label)
     
     plt.ylabel('AUC')
     plt.xlabel('Mass')
@@ -313,3 +314,79 @@ def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_interva
     plt.show()
 
     return auc
+
+
+def plot_significance(model, dataset: Dataset, bins=20, name='Model', sample_frac=None, size=4):
+    def safe_div(a, b):
+        if b == 0.0:
+            return 0.0
+        
+        return a / b
+
+    fig, axes = plt.subplots(ncols=4, nrows=6)
+    axes = np.reshape(axes, newshape=[-1])
+    
+    fig.set_figwidth(int(size * 5))
+    fig.set_figheight(int(size * 5))
+    
+    plt.suptitle(f'[Dataset] {name}\'s Output Distribution + Significance', 
+                 y=1.02, verticalalignment='top')
+    
+    for i, interval in enumerate(dataset.current_mass_intervals + [None]):
+        ax = axes[i]
+        
+        if interval is None:
+            x, y = dataset.get(sample=sample_frac)
+            title = 'Total'
+        else:
+            x, y = dataset.get_by_mass(interval, sample=sample_frac)
+            title = f'{int(np.mean(interval))} GeV'
+            
+        out = model.predict(x, batch_size=128, verbose=0)
+        out = np.asarray(out)
+        
+        sig_mask = y == 1.0
+        bkg_mask = y == 0.0
+        
+        cuts = np.linspace(0.0, 1.0, num=bins)
+        ams = []
+        
+        bx = ax.twinx()
+        
+        ax.hist(out[sig_mask], bins=bins, alpha=0.55, label='sig', color='blue', edgecolor='blue')
+        ax.hist(out[bkg_mask], bins=bins, alpha=0.7, label='bkg', color='red', histtype='step', 
+                hatch='//', linewidth=2, edgecolor='red')
+        
+        for i in range(len(cuts) - 1):
+            lo, up = cuts[i], cuts[i + 1]
+            
+            cut_mask = (out > lo) & (out <= up)
+            
+            # select signals and bkg
+            s = out[sig_mask & cut_mask].shape[0]
+            b = out[bkg_mask & cut_mask].shape[0]
+        
+            # compute approximate median significance (AMS)
+            if ams_eq == 1:
+                val = np.sqrt(2 * ((s + b) * np.log(1 + safe_div(s, b)) - s))
+            elif ams_eq == 2:
+                val = safe_div(s, np.sqrt(s + b))
+            else:
+                val = safe_div(s, np.sqrt(b))
+        
+        k = np.argmax(ams)
+        
+        bx.grid(False)
+        bx.plot(cuts, [0.0] + ams, color='g', label='Significance')
+        
+        ax.axvline(x=cuts[k + 1], linestyle='--', linewidth=2, color='g',
+                   label=f'{round(cuts[k + 1], 1)}: {round(ams[k], 1)}')
+        
+        bx.set_ylabel('Significance')
+        ax.set_title(title)
+        ax.set_xlabel('Probability')
+        ax.set_ylabel('Num. Events')
+        
+        ax.legend(loc='best')
+    
+    fig.tight_layout()

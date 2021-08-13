@@ -26,9 +26,10 @@ class Hepmass:
         self.masses = None
         self.unique_mass = None
         
-    def load(self, path: str, mass: Union[np.ndarray, tuple, list] = None, test_size=0.2, 
+    def load(self, path: str, drop_mass: Union[np.ndarray, tuple, list] = None, test_size=0.2, 
              fit_scaler=True, robust=False, seed=utils.SEED):
         """Loads the dataset:
+            - `drop_mass`: drops the provided mass values,
             - selects feature columns,
             - scales the data if a sklearn.Scaler was provided,
             - splits all the data into train and test sets,
@@ -49,9 +50,9 @@ class Hepmass:
         self.columns = columns
         
         # drop some mass
-        if isinstance(mass, (list, tuple)):
-            print('selecting mass...')
-            self._select_mass(mass)
+        if isinstance(drop_mass, (list, tuple)):
+            print('Removing masses...')
+            self._remove_mass(drop_mass)
             free_mem()
 
         self.unique_mass = sorted(self.ds.mass.unique())
@@ -112,8 +113,8 @@ class Hepmass:
     def get_by_mass(self, mass: float, sample=None) -> dict:
         return self.get(mask=self.ds.mass == mass, sample=sample)
     
-    def _select_mass(self, mass):
-        """Selects only the given mass from the dataframe"""
+    def _remove_mass(self, mass):
+        """Removes only the given mass from the dataframe"""
         for m in mass:
             # +/- 1 interval is used to account for floating-point inaccuracies
             mask = (self.ds.mass >= m - 1.0) & (self.ds.mass < m + 1.0)

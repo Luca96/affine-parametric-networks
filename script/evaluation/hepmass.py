@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from script import utils
@@ -12,7 +13,7 @@ from script.models import PNN
 from typing import Union, List
 
 
-def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, figsize=(26, 20), num_folds=10, 
+def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, figsize=(12, 9), num_folds=10, 
                       verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
     """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     plt.figure(figsize=figsize)
@@ -53,9 +54,10 @@ def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, fig
     plt.ylabel(metric_name)
     plt.xlabel('Mass')
     
+    label = f'avg: {round(np.mean(avg_metric), 2)}'
+
     if style == 'dot': 
-        plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
-        # plt.scatter(mass, avg_metric, s=50, color='b')
+        plt.plot(mass, avg_metric, marker='o', label=label)
         
         for i in range(num_folds):
             plt.scatter(mass, metric[i], s=30, color='r')
@@ -64,22 +66,22 @@ def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, fig
         avg_auc = np.array(avg_metric)
 
         if style == 'bar':
-            min_err = avg_metric - np.min(values, axis=0)
-            max_err = np.max(values, axis=0) - avg_metric
+            min_err = avg_auc - np.min(values, axis=0)
+            max_err = np.max(values, axis=0) - avg_auc
 
-            plt.errorbar(mass, avg_metric, yerr=np.stack([min_err, max_err]), fmt='ob', 
+            plt.errorbar(mass, avg_auc, yerr=np.stack([min_err, max_err]), fmt='ob', 
                          capsize=5.0, elinewidth=1, capthick=1)
-            plt.plot(mass, avg_metric, label='avg')
+            plt.plot(mass, avg_auc, marker='o', label=label)
         else:
             min_err = np.min(values, axis=0)
             max_err = np.max(values, axis=0)
 
             plt.fill_between(mass, min_err, max_err, color='gray', alpha=0.2)
 
-            plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
-            # plt.scatter(mass, avg_metric, s=50, color='b')
+            plt.plot(mass, avg_auc, marker='o', label=label)
     
     if show:
+        plt.legend(loc='best')
         plt.show()
 
     if return_average:
@@ -88,7 +90,7 @@ def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, fig
     return metric
 
 
-def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(26, 20), num_folds=10, verbose=0, 
+def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(12, 9), num_folds=10, verbose=0, 
                    silent=False, style='bar', return_average=True, show=True, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
 
@@ -130,7 +132,7 @@ def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index=2, fake_mass=[], figs
     for i, fake_m in enumerate(fake_mass):
         k = scaled_fake_mass[i]
         
-        plt.plot(mass, auc[k], marker='o', s=50, label=f'm-{round(fake_m, 2)}')
+        plt.plot(mass, auc[k], marker='o', label=f'm-{round(fake_m, 2)}')
         # plt.scatter(mass, auc[k], s=50)
         
     plt.legend(loc='best')
@@ -172,7 +174,7 @@ def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index=2, figsize=(
     plt.title(f'AUC vs Mass')
     
     for label in features.keys():
-        plt.plot(mass, auc[label], marker='o', s=50)
+        plt.plot(mass, auc[label], marker='o')
         # plt.scatter(mass, auc[label], s=50, label=label)
     
     plt.ylabel('AUC')
@@ -260,3 +262,72 @@ def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_fra
         ax.legend(loc='best')
     
     fig.tight_layout()
+
+
+def plot_predicted_mass(inverse: tf.keras.Model, dataset: Hepmass, bins=10, size=14, **kwargs):
+    # build data-frame, first
+    df = pd.DataFrame({'True mass': [], 'Pred. mass': [], 'label': []})
+    
+    for i, mass in enumerate(dataset.unique_mass):
+        x, y = dataset.get_by_mass(mass, **kwargs)
+        
+        prob = inverse.predict([x['x'], y], batch_size=128, verbose=0)
+        pred = tf.reduce_sum(prob * dataset.unique_mass, axis=-1)
+        
+        a = dataset.m_scaler.inverse_transform(x['m'])
+        a = np.round(np.reshape(a, newshape=[-1]))
+        b = np.reshape(pred, newshape=[-1]) 
+        
+        df = pd.concat([df, pd.DataFrame({'True mass': a, 'Pred. mass': b,
+                                          'label': np.reshape(y, newshape=[-1])})])
+    
+    df.replace(to_replace={0.0: 'bkg', 1.0: 'sig'}, inplace=True)
+    
+    # then plot
+    fig, axes = plt.subplots(ncols=3, nrows=2)
+    axes = np.reshape(axes, newshape=[-1])
+    
+    fig.set_figwidth(size)
+    fig.set_figheight(size // 2)
+    
+    plt.suptitle(f'[HEPMASS] Predicted Mass Distribution', y=1.02, verticalalignment='top')
+    
+    for i, mass in enumerate(dataset.unique_mass + [None]):
+        ax = axes[i]
+        
+        if mass is None:
+            title = 'Total'
+            dd = df 
+        else:
+            dd = df.loc[df['True mass'] == round(mass)]
+            title = f'{int(round(mass))} GeV'
+        
+        # signal histogram
+        sns.histplot(data=dd[dd.label == 'sig'], x='Pred. mass', label='sig', bins=bins,
+                     stat='probability', color='#1616F28C', ax=ax)
+        
+        # bkg histogram
+        sns.histplot(data=dd[dd.label == 'bkg'], x='Pred. mass', label='bkg', bins=bins,
+                     stat='probability', color='#CD1313B2', ax=ax)
+        
+        # hatch the bkg's bars
+        for bar in ax.containers[-1]:
+            bar.set_hatch('//')
+
+        ax.set_ylabel('Frac. events')
+        ax.set_title(title)
+
+        sig_bars, bkg_bars = ax.containers
+    
+        # stack bars
+        for i, bar in enumerate(bkg_bars):
+            sbar = sig_bars[i]
+            sbar.zorder = 100
+            
+            bar.set_width(sbar.get_width())
+            bar.set_xy(sbar.get_xy())
+
+        ax.legend(loc='best')
+    
+    fig.tight_layout()
+    plt.show()

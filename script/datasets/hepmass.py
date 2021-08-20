@@ -26,7 +26,7 @@ class Hepmass:
         self.masses = None
         self.unique_mass = None
         
-    def load(self, path: str, drop_mass: Union[np.ndarray, tuple, list] = None, test_size=0.2, 
+    def load(self, path: str, drop_mass: Union[np.ndarray, tuple, list] = None, 
              fit_scaler=True, robust=False, seed=utils.SEED):
         """Loads the dataset:
             - `drop_mass`: drops the provided mass values,
@@ -113,6 +113,14 @@ class Hepmass:
     def get_by_mass(self, mass: float, sample=None) -> dict:
         return self.get(mask=self.ds.mass == mass, sample=sample)
     
+    def scale_mass(self, mass) -> np.ndarray:
+        if self.m_scaler is None:
+            return mass
+
+        mass = np.reshape(mass, newshape=(-1, 1))
+        mass = self.m_scaler.transform(mass)
+        return np.squeeze(mass)
+
     def _remove_mass(self, mass):
         """Removes only the given mass from the dataframe"""
         for m in mass:

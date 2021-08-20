@@ -73,7 +73,7 @@ def split_data(data: tuple, num_folds=10, seed=utils.SEED):
 
 
 def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: Union[np.ndarray, List[tuple]] = None,
-                      figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
+                      figsize=(12, 9), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
     """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
@@ -117,9 +117,10 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
     plt.ylabel(metric_name)
     plt.xlabel('Mass')
     
+    label = f'avg: {round(np.mean(avg_metric), 2)}'
+
     if style == 'dot': 
-        plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
-        # plt.scatter(mass, avg_metric, s=50, color='b')
+        plt.plot(mass, avg_metric, marker='o', label=label)
         
         for i in range(num_folds):
             plt.scatter(mass, metric[i], s=30, color='r')
@@ -133,17 +134,17 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
 
             plt.errorbar(mass, avg_metric, yerr=np.stack([min_err, max_err]), fmt='ob', 
                          capsize=5.0, elinewidth=1, capthick=1)
-            plt.plot(mass, avg_metric, label='avg')
+            plt.plot(mass, avg_metric, label=label)
         else:
             min_err = np.min(values, axis=0)
             max_err = np.max(values, axis=0)
 
             plt.fill_between(mass, min_err, max_err, color='gray', alpha=0.2)
 
-            plt.plot(mass, avg_metric, marker='o', s=50, label='avg')
-            # plt.scatter(mass, avg_metric, s=50, color='b')
+            plt.plot(mass, avg_metric, marker='o', label=label)
     
     if show:
+        plt.legend(loc='best')
         plt.show()
 
     if return_average:
@@ -153,7 +154,7 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
 
 
 def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, show=True,
-                   figsize=(26, 20), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+                   figsize=(12, 9), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
 
     return metric_with_error(model, dataset, metric='AUC', index=index, mass_intervals=mass_intervals, figsize=figsize, show=show,
@@ -201,7 +202,7 @@ def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray
     for i, fake_m in enumerate(fake_mass):
         k = scaled_fake_mass[i]
         
-        plt.plot(mass, auc[k], marker='o', s=50, label=f'm-{round(fake_m, 2)}')
+        plt.plot(mass, auc[k], marker='o', label=f'm-{round(fake_m, 2)}')
         # plt.scatter(mass, auc[k], s=50)
         
     plt.legend(loc='best')
@@ -254,7 +255,7 @@ def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[n
     plt.title(f'AUC vs Mass')
     
     for label in features.keys():
-        plt.plot(mass, auc[label], marker='o', s=50)
+        plt.plot(mass, auc[label], marker='o')
         # plt.scatter(mass, auc[label], s=50, label=label)
     
     plt.ylabel('AUC')
@@ -316,7 +317,10 @@ def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_interva
     return auc
 
 
-def plot_significance(model, dataset: Dataset, bins=20, name='Model', sample_frac=None, size=4):
+def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, size=4):
+    from script.datasets import Dataset
+    assert isinstance(dataset, Dataset)
+
     def safe_div(a, b):
         if b == 0.0:
             return 0.0

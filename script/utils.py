@@ -181,7 +181,7 @@ def get_compiled_non_parametric(data, units=None, save=None, **kwargs):
 def get_compiled_pnn(data, units=None, save=None, **kwargs):
     from script.models import PNN
     return get_compiled_model(cls=PNN, data=data, units=units, save=save, **kwargs)
- 
+
 
 def get_compiled_affine(data, units=None, save=None, **kwargs):
     from script.models import AffinePNN

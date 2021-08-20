@@ -251,6 +251,14 @@ class Dataset:
 
         return x, labels
 
+    def scale_mass(self, mass) -> np.ndarray:
+        if self.m_scaler is None:
+            return mass
+
+        mass = np.reshape(mass, newshape=(-1, 1))
+        mass = self.m_scaler.transform(mass)
+        return np.squeeze(mass)
+
     def mass_to_categories(self, mass: list):
         """Maps each given mass into an iterval, i.e. retrieving its index to be used as category"""
         bins = tfp.stats.find_bins(tf.cast(mass, dtype=tf.float32), self.signal_mass_bins)

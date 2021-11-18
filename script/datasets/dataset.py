@@ -17,6 +17,7 @@ class Dataset:
 
     SIGNAL_PATH = os.path.join('data', 'signal.csv')
     BACKGROUND_PATH = os.path.join('data', 'background.csv')
+    BACKGROUND_PATH2 = os.path.join('data', 'mcs', 'background_physweight2.csv')
     
     FEATURE_COLUMNS = [
         "dimuon_deltar", 
@@ -90,8 +91,9 @@ class Dataset:
         # keep sample weights
         self.weights_df = None
     
-    def load(self, mass_intervals: Union[np.ndarray, List[tuple]] = None, test_size=0.2, change_bkg_mass=False,
-             feature_columns=None, robust=False, multi_class=False):
+    def load(self, signal: Union[str, pd.DataFrame] = None, bkg: Union[str, pd.DataFrame] = None, test_size=0.2, mass_column='mA',
+             mass_intervals: Union[np.ndarray, List[tuple]] = None, change_bkg_mass=False, feature_columns=None, robust=False, 
+             multi_class=False, sample_bkg=False, add_var=False):
         """Loads the signal+background data:
             - selects feature columns,
             - scales the data if a sklearn.Scaler was provided,
@@ -105,16 +107,55 @@ class Dataset:
         if self.ds is not None:
             return
 
-        print('[signal] loading...')
-        self.signal = pd.read_csv(self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
+        if signal is None or isinstance(signal, str):
+            print('[signal] loading...')
+            self.signal = pd.read_csv(signal or self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
         
-        print('[background] loading...')
-        self.background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
+        elif isinstance(signal, pd.DataFrame):
+            self.signal = signal
+        else:
+            raise ValueError
+
+        self.signal['name'] = 'signal'
+
+        if bkg is None or isinstance(bkg, str):
+            print('[background] loading...')
+            # self.background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
+            self.background = pd.read_csv(bkg or self.BACKGROUND_PATH2, na_filter=False)
+
+        elif isinstance(bkg, pd.DataFrame):
+            self.background = bkg
+        else:
+            raise ValueError
         
-        self.ds = pd.concat([self.signal, self.background])
+        if 'bkg_name' in self.background.columns:
+            def convert(x):
+                if 'ST_' in x:
+                    return 'ST'
+                
+                if 'diboson_' in x:
+                    return 'diboson'
+                
+                return x
+
+            self.background['name'] = self.background['bkg_name'].apply(convert)
+            self.names_df = pd.DataFrame({'name': self.background['name']})
+            self.original_names = pd.DataFrame({'name': self.background['bkg_name']})
+            self.background.drop(columns=['bkg_name'], inplace=True)
+
+        # add new var
+        if add_var:
+            self.signal['dimuon_pt_M'] = self.signal['dimuon_pt'] / self.signal['dimuon_M']
+            self.background['dimuon_pt_M'] = self.background['dimuon_pt'] / self.background['dimuon_M']
+
+        self.ds = pd.concat([self.signal, self.background], ignore_index=True)
+        # DO NOT reset index
         
         # mass intervals
         self.unique_signal_mass = sorted(self.signal['mA'].unique())
+
+        assert mass_column in self.ds.columns
+        self.mass_column = mass_column
         
         if mass_intervals is not None:
             self.current_mass_intervals = mass_intervals
@@ -133,6 +174,17 @@ class Dataset:
             # last mass interval is apparently lost
             self.current_mass_intervals = self.current_mass_intervals[:-1]
         
+        if sample_bkg:
+            self.should_sample_bkg = True
+
+            if self.m_scaler is None:
+                self.mass_for_bkg = self.unique_signal_mass
+            else:
+                mass = self.scale_mass(self.unique_signal_mass)
+                self.mass_for_bkg = np.squeeze(mass)
+        else:
+            self.should_sample_bkg = False
+
         # from binary to multi-class classification
         if multi_class:
             print('[Dataset] making multi-class labels...')
@@ -147,14 +199,18 @@ class Dataset:
         
         columns = dict(feature=feature_columns,
                        weight=['weight', 'PU_Weight'],
-                       label=self.ds.columns[-1], mass=self.ds.columns[0])
+                       label='type', mass='mA')
         self.columns = columns
         
+        # add new feature: "dimuon_pt / dimuon_M"
+        if add_var:
+            self.columns['feature'].append('dimuon_pt_M')
+
         # remove outliers
         if robust:
             print('[Dataset] clipping outliers..')
             self._clip_outliers()
-        
+    
         # train-test split:
         self.train_df, self.test_df = train_test_split(self.ds, test_size=test_size, 
                                                        random_state=self.seed)
@@ -180,10 +236,12 @@ class Dataset:
         self.train_features = self.train_df[columns['feature']]
         self.train_labels = self.train_df[columns['label']]
         self.train_mass = self.train_df[columns['mass']]
+        self.train_mass_col = self.train_df[self.mass_column]
         
         self.test_features = self.test_df[columns['feature']]
         self.test_labels = self.test_df[columns['label']]
         self.test_mass = self.test_df[columns['mass']]
+        self.test_mass_col = self.test_df[self.mass_column]
         
         # select "sample weights" for training data only
         self.weights_df = self.train_df[columns['weight']]
@@ -191,20 +249,33 @@ class Dataset:
         print('[Dataset] loaded.')
         free_mem()
     
-    def get(self, mask=None, sample=None, transformer=None) -> tuple:
+    def get(self, mask=None, sample=None, transformer=None, split=None) -> tuple:
+        if isinstance(split, str):
+            split = split.lower()
+    
         if isinstance(mask, str) and (mask == 'test'):
             features = self.test_features
             labels = self.test_labels
             mass = self.test_mass
             
         elif mask is not None:
-            features = self.test_features[mask]
-            labels = self.test_labels[mask]
-            mass = self.test_mass[mask]
+            if split in ['test', None]:
+                features = self.test_features[mask]
+                labels = self.test_labels[mask]
+                mass = self.test_mass[mask]
+            else:
+                features = self.train_features[mask]
+                labels = self.train_labels[mask]
+                mass = self.train_mass[mask]
         else:
-            features = self.train_features
-            labels = self.train_labels
-            mass = self.train_mass
+            if split == 'test':
+                features = self.test_features
+                labels = self.test_labels
+                mass = self.test_mass
+            else:
+                features = self.train_features
+                labels = self.train_labels
+                mass = self.train_mass
         
         # sample a subset of the selected data
         if isinstance(sample, float):
@@ -224,20 +295,48 @@ class Dataset:
     
         if transformer is not None:
             features = transformer.transform(features)
-    
-        x = dict(x=features, m=mass)
         
         if self.num_classes is not None:
             labels = tf.keras.utils.to_categorical(labels, num_classes=self.num_classes)
         
+        if self.should_sample_bkg:
+            mask = np.squeeze(labels == 0.0)
+
+            if np.sum(mask) > 0:
+                bkg_mass = np.random.choice(self.mass_for_bkg, size=np.sum(mask), replace=True)
+                mass[mask] = np.reshape(bkg_mass, newshape=(-1, 1))
+
+        x = dict(x=features.astype(np.float32), m=mass.astype(np.float32))
+
         free_mem()
-        return x, labels
+        return x, labels.astype(np.float32)
     
-    def get_by_mass(self, interval: Union[list, tuple], sample=None, transformer=None) -> tuple:
+    def get_by_mass(self, interval: Union[list, tuple], sample=None, transformer=None, split='test',
+                    interval_as_mass=False) -> tuple:
         mass_low, mass_high = interval
         
-        return self.get(mask=(self.test_mass >= mass_low) & (self.test_mass < mass_high), sample=sample,
-                        transformer=transformer)
+        if split == 'all':
+            x_test, y_test = self.get_by_mass(interval, sample=sample, split='test')
+            x_train, y_train = self.get_by_mass(interval, sample=sample, split='train')
+
+            x = {k: np.concatenate([x_train[k], v], axis=0) for k, v in x_test.items()}
+            y = np.concatenate([y_train, y_test], axis=0)
+
+            return x, y
+
+        elif split == 'test':
+            mass = self.test_mass_col
+        else:
+            mass = self.train_mass_col
+
+        x, y = self.get(mask=(mass >= mass_low) & (mass < mass_high), sample=sample,
+                        transformer=transformer, split=split)
+
+        if interval_as_mass:
+            mask = np.squeeze(y == 0.0)  # bkg
+            x['m'][mask] = self.scale_mass(np.mean(interval))
+
+        return x, y
     
     def get_and_change_mass(self, interval: Union[list, tuple], mass: float, sample=None) -> tuple:
         mass_low, mass_high = interval

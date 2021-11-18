@@ -3,6 +3,8 @@
 import tensorflow as tf
 
 from tensorflow.keras.layers import *
+
+from script import utils
 from script.models.pnn import PNN
 
 from typing import Dict

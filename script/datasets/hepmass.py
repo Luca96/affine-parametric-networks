@@ -16,6 +16,7 @@ class Hepmass:
 
     def __init__(self, x_scaler=None, m_scaler=None):
         self.ds = None
+        self.stats = None
         self.columns = []
 
         self.x_scaler = x_scaler
@@ -27,7 +28,7 @@ class Hepmass:
         self.unique_mass = None
         
     def load(self, path: str, drop_mass: Union[np.ndarray, tuple, list] = None, 
-             fit_scaler=True, robust=False, seed=utils.SEED):
+             fit_scaler=True, robust=False, statistics=None, seed=utils.SEED):
         """Loads the dataset:
             - `drop_mass`: drops the provided mass values,
             - selects feature columns,
@@ -37,7 +38,8 @@ class Hepmass:
             - if `robust=True`, outliers are clipped within [Q1 - 1.5 * IQR, Q3 + 1.5 * IQR].
         """
         self.seed = seed
-        
+        self.stats = statistics
+
         if self.ds is not None:
             return
 
@@ -49,17 +51,19 @@ class Hepmass:
                        label=self.ds.columns[0], mass=self.ds.columns[-1])
         self.columns = columns
         
+        self.unique_mass = sorted(self.ds.mass.unique())
+
         # drop some mass
         if isinstance(drop_mass, (list, tuple)):
             print('Removing masses...')
             self._remove_mass(drop_mass)
             free_mem()
 
-        self.unique_mass = sorted(self.ds.mass.unique())
+        self.current_unique_mass = sorted(self.ds.mass.unique())
 
         if robust:
             print('clipping outliers..')
-            self._clip_outliers()
+            self._clip_outliers2()
 
         # select series
         self.features = self.ds[columns['feature']]
@@ -129,28 +133,71 @@ class Hepmass:
 
             self.ds.drop(index=self.ds[mask].index, inplace=True)
 
-    def _clip_outliers(self):
-        for mass in self.unique_mass:
-            for col in self.columns['feature']:
-                for label in [0.0, 1.0]:
-                    mask = (self.ds['mass'] == mass) & (self.ds[self.columns['label']] == label)
+    # def _clip_outliers(self):
+    #     for mass in self.unique_mass:
+    #         for col in self.columns['feature']:
+    #             for label in [0.0, 1.0]:
+    #                 mask = (self.ds['mass'] == mass) & (self.ds[self.columns['label']] == label)
                     
-                    # select data
-                    serie = self.ds.loc[mask, col]
+    #                 # select data
+    #                 serie = self.ds.loc[mask, col]
                     
-                    # get quantiles
-                    # source: https://paolapozzolo.it/boxplot/
+    #                 # get quantiles
+    #                 # source: https://paolapozzolo.it/boxplot/
+    #                 stats = serie.describe()
+                    
+    #                 q1 = stats['25%']
+    #                 q3 = stats['75%']
+    #                 iqr = q3 - q1  # inter-quartile range
+                    
+    #                 low = q1 - 1.5 * iqr
+    #                 upp = q3 + 1.5 * iqr
+                    
+    #                 # clip
+    #                 serie.clip(lower=low, upper=upp, inplace=True)
+                    
+    #                 # apply changes
+    #                 self.ds.loc[mask, col] = serie
+
+    def _clip_outliers2(self):
+        if isinstance(self.stats, dict):
+            use_stats = True
+        else:
+            use_stats = False
+            stats_ = dict()
+
+        for col in self.columns['feature']:
+            if not use_stats:
+                stats_[col] = {}
+
+            for mass in self.unique_mass:
+                mask = (self.ds['mass'] == mass)
+
+                # select data
+                serie = self.ds.loc[mask, col]
+                
+                # get quantiles
+                if use_stats:
+                    stats = self.stats[col][mass]
+                else:
                     stats = serie.describe()
-                    
-                    q1 = stats['25%']
-                    q3 = stats['75%']
-                    iqr = q3 - q1  # inter-quartile range
-                    
-                    low = q1 - 1.5 * iqr
-                    upp = q3 + 1.5 * iqr
-                    
-                    # clip
-                    serie.clip(lower=low, upper=upp, inplace=True)
-                    
-                    # apply changes
-                    self.ds.loc[mask, col] = serie
+                
+                # source: https://paolapozzolo.it/boxplot/
+                q1 = stats['25%']
+                q3 = stats['75%']
+                iqr = q3 - q1  # inter-quartile range
+                
+                low = q1 - 1.5 * iqr
+                upp = q3 + 1.5 * iqr
+                
+                # clip
+                serie.clip(lower=low, upper=upp, inplace=True)
+                
+                # apply changes
+                self.ds.loc[mask, col] = serie
+
+                if not use_stats:
+                    stats_[col][mass] = {'25%': q1, '75%': q3}
+
+        if not use_stats:
+            self.stats = stats_

@@ -13,8 +13,8 @@ from script.models import PNN
 from typing import Union, List
 
 
-def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, figsize=(12, 9), num_folds=10, 
-                      verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
+def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, figsize=(12, 10), num_folds=10, 
+                      verbose=0, silent=False, style='bar', return_average=True, show=True, batch_size=1024, **kwargs):
     """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     plt.figure(figsize=figsize)
 
@@ -31,7 +31,7 @@ def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, fig
         folds = eval_utils.split_data(data=(x, y), num_folds=num_folds)
         
         for i, fold in enumerate(folds):
-            score = model.evaluate(x=fold[0], y=fold[1], batch_size=128, verbose=verbose)
+            score = model.evaluate(x=fold[0], y=fold[1], batch_size=batch_size, verbose=verbose)
 
             metric_score = round(score[index], 4)
             metric[i].append(eval_utils.check_underflow(metric_score, score[1]))
@@ -90,16 +90,16 @@ def metric_with_error(model: PNN, dataset: Hepmass, metric: str, index: int, fig
     return metric
 
 
-def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(12, 9), num_folds=10, verbose=0, 
-                   silent=False, style='bar', return_average=True, show=True, **kwargs):
+def auc_with_error(model: PNN, dataset: Hepmass, index=2, figsize=(12, 10), num_folds=10, verbose=0, 
+                   silent=False, style='bar', return_average=True, show=True, batch_size=1024, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
 
     return metric_with_error(model, dataset, metric='AUC', index=index, figsize=figsize, num_folds=num_folds, show=show,
-                             verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
+                             verbose=verbose, silent=silent, style=style, return_average=return_average, batch_size=batch_size, **kwargs)
 
 
 def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index=2, fake_mass=[], figsize=(26, 20), 
-                   sample_frac=None, verbose=0, silent=False):
+                   sample_frac=None, verbose=0, silent=False, batch_size=128):
     """Computes AUC by faking the true mass"""
     plt.figure(figsize=figsize)
     
@@ -122,7 +122,7 @@ def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index=2, fake_mass=[], figs
         for fake_m in scaled_fake_mass:
             x['m'] = np.ones_like(x['m']) * fake_m
         
-            score = model.evaluate(x=x, y=y, batch_size=128, verbose=verbose)
+            score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=verbose)
             
             auc_score = round(score[auc_index], 4)
             auc[fake_m].append(eval_utils.check_underflow(auc_score, score[1]))
@@ -144,7 +144,7 @@ def auc_vs_no_mass(model: PNN, dataset: Hepmass, auc_index=2, fake_mass=[], figs
 
 
 def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index=2, figsize=(26, 20), 
-                            sample_frac=None, features={}, verbose=1, silent=False):
+                            sample_frac=None, features={}, verbose=1, silent=False, batch_size=128):
     """Computes AUC by dropping one or more features"""
     plt.figure(figsize=figsize)
 
@@ -166,7 +166,7 @@ def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index=2, figsize=(
             if not silent:
                 print(f'Mass: {math.ceil(m)} done.')
     
-            score = model.evaluate(x=x, y=y, batch_size=128, verbose=verbose)
+            score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=verbose)
             
             auc_score = round(score[auc_index], 4)
             auc[label].append(eval_utils.check_underflow(auc_score, score[1]))
@@ -186,7 +186,7 @@ def auc_vs_mass_no_features(model: PNN, dataset: Hepmass, auc_index=2, figsize=(
 
 
 def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_frac=None, 
-                      size=14, ams_eq=2):
+                      size=14, ams_eq=2, batch_size=512):
     def safe_div(a, b):
         if b == 0.0:
             return 0.0
@@ -199,7 +199,7 @@ def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_fra
     fig.set_figwidth(size)
     fig.set_figheight(size // 2)
     
-    plt.suptitle(f'[HEPMASS] {name}\'s Output Distribution + Significance', 
+    plt.suptitle(f'[HEPMASS] {name}\'s Output Distribution & Significance', 
                  y=1.02, verticalalignment='top')
     
     for i, mass in enumerate(dataset.unique_mass + [None]):
@@ -212,7 +212,7 @@ def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_fra
             x, y = dataset.get_by_mass(mass, sample=sample_frac)
             title = f'{int(round(mass))} GeV'
             
-        out = model.predict(x, batch_size=128, verbose=0)
+        out = model.predict(x, batch_size=batch_size, verbose=0)
         out = np.asarray(out)
         
         sig_mask = y == 1.0
@@ -230,7 +230,7 @@ def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_fra
         for i in range(len(cuts) - 1):
             lo, up = cuts[i], cuts[i + 1]
             
-            cut_mask = (out > lo) & (out <= up)
+            cut_mask = out >= lo
             
             # select signals and bkg (as true positives of both classes)
             s = out[sig_mask & cut_mask].shape[0]
@@ -264,14 +264,15 @@ def plot_significance(model, dataset: Hepmass, bins=20, name='Model', sample_fra
     fig.tight_layout()
 
 
-def plot_predicted_mass(inverse: tf.keras.Model, dataset: Hepmass, bins=10, size=14, **kwargs):
+def plot_predicted_mass(inverse: tf.keras.Model, dataset: Hepmass, bins=10, size=14, batch_size=128,
+                        **kwargs):
     # build data-frame, first
     df = pd.DataFrame({'True mass': [], 'Pred. mass': [], 'label': []})
     
     for i, mass in enumerate(dataset.unique_mass):
         x, y = dataset.get_by_mass(mass, **kwargs)
         
-        prob = inverse.predict([x['x'], y], batch_size=128, verbose=0)
+        prob = inverse.predict([x['x'], y], batch_size=batch_size, verbose=0)
         pred = tf.reduce_sum(prob * dataset.unique_mass, axis=-1)
         
         a = dataset.m_scaler.inverse_transform(x['m'])

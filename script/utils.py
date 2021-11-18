@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE, Isomap, SpectralEmbedding, LocallyLinearEmbedding
+
 from tensorflow.keras.callbacks import ModelCheckpoint
 
 
@@ -25,6 +27,22 @@ def set_random_seed(seed: int) -> int:
         
         SEED = seed
         print(f'Random seed {SEED} set.')
+
+
+def get_random_generator(seed=SEED) -> np.random.Generator:
+    """Returns a numpy's random generator instance"""
+    if seed is not None:
+        seed = int(seed)
+        assert 0 <= seed < 2 ** 32
+
+    return np.random.default_rng(np.random.MT19937(seed=seed))
+
+
+def makedir(*args: str) -> str:
+    """Creates a directory"""
+    path = os.path.join(*args)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def tf_global_norm(tensors: list, **kwargs):
@@ -111,11 +129,54 @@ def plot_history(history, cols: int, rows: int, title: str, figsize=(30, 20), **
             break
 
 
+def compare_plot(mass, size=(12, 10), title='Comparison', x_label='x', y_label='y', legend='best', **kwargs):
+    plt.figure(figsize=(12, 10))
+
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    
+    for k, v in kwargs.items():
+        plt.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v).item(), 2)}')
+    
+    plt.legend(loc=legend)
+    plt.show()
+
+
 def plot_model(model: tf.keras.Model, show_shapes=False, layer_names=True, rankdir='TB', dpi=96, 
                expand_nested=False, **kwargs):
     return tf.keras.utils.plot_model(model, to_file="model.png", show_shapes=show_shapes, 
                                      show_layer_names=layer_names, rankdir=rankdir, 
                                      expand_nested=expand_nested, dpi=dpi, **kwargs)
+
+
+def get_dataset(dataset, split: str, batch_size: int, **kwargs):
+    from script.datasets import FairDataset, DataSequence
+    assert isinstance(dataset, FairDataset)
+    
+    sequence = DataSequence(dataset, batch_size=batch_size, split=split.lower(), **kwargs)
+    
+    def gen():    
+        for i in range(len(sequence)):
+            yield sequence[0]
+            
+    tf_data = tf.data.Dataset.from_generator(
+        gen, 
+        output_types=({'x': tf.float32, 'm': tf.float32}, tf.float32))
+    
+    return tf_data.prefetch(3)
+
+
+def dataset_from_sequence(sequence: tf.keras.utils.Sequence, prefetch=2):
+    def gen():    
+        for i in range(len(sequence)):
+            yield sequence[0]
+            
+    tf_data = tf.data.Dataset.from_generator(
+        gen, 
+        output_types=({'x': tf.float32, 'm': tf.float32}, tf.float32))
+    
+    return tf_data.prefetch(prefetch)
 
 
 def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights'):
@@ -134,6 +195,7 @@ def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights'):
     # from tuples get only path; remove ext
     files = map(lambda x: x[0], files)  
 
+    # TODO: this may be not true when training is resumed..
     # sort by epoch number (best models have higher epoch number)
     files = sorted(files)
     
@@ -143,7 +205,7 @@ def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights'):
 
 
 def get_checkpoint(path: str, monitor='val_auc'):
-    path = os.path.join('weights', path, 'weights-{epoch:02d}-{val_auc:.3f}')
+    path = os.path.join('weights', path, 'weights-{epoch:02d}-' + f'\u007b{monitor}:.3f\u007d')
 
     return ModelCheckpoint(path,
                            save_weights_only=True, monitor=monitor,
@@ -153,6 +215,11 @@ def get_checkpoint(path: str, monitor='val_auc'):
 def get_compiled_model(cls, data, units: list = None, save: str = None, **kwargs):
     from tensorflow.keras.metrics import AUC, Precision, Recall
     from script.datasets import Hepmass, Dataset
+
+    opt = kwargs.pop('optimizer', {})
+    lr = kwargs.pop('lr', 1e-3)
+
+    monitor = kwargs.pop('monitor', 'val_auc')
 
     units = [300, 150, 100, 50] if units is None else units
     
@@ -164,11 +231,15 @@ def get_compiled_model(cls, data, units: list = None, save: str = None, **kwargs
     model = cls(input_shapes=dict(m=(1,), x=features_shape), 
                 units=units, **kwargs)
 
-    model.compile(metrics=['binary_accuracy', AUC(name='auc'), 
-                           Precision(name='precision'), Recall(name='recall')])
+    model.compile(lr=lr, **opt,
+                  metrics=['binary_accuracy', AUC(name='auc'), 
+                           Precision(name='precision'), Recall(name='recall'),
+                           # Significance2(name='sig2'), 
+                           # Significance3(name='sig3')
+                           ])
 
     if isinstance(save, str):
-        return model, get_checkpoint(path=save)
+        return model, get_checkpoint(path=save, monitor=monitor)
     
     return model
 
@@ -249,3 +320,179 @@ def plot_model_distribution(model, dataset, bins=20, name='Model', sample_frac=N
         ax.legend(loc='best')
 
     fig.tight_layout()
+
+
+def project_manifold(model, x, y, amount=100_000, size=(12, 10), name='pNN', palette=None, mass=1.0, 
+                     scaler=None, projection=TSNE, **kwargs):
+    free_mem()
+    
+    # predict
+    z = model.predict(x, batch_size=1024, verbose=1)
+
+    # select only true positives
+    mask = np.round(z['y']) == y
+    mask = np.squeeze(mask)
+    
+    # take a random subset
+    r = z['r'][mask]
+    idx = np.random.choice(np.arange(r.shape[0]), size=int(amount), replace=False)
+    
+    del z
+    free_mem()
+    
+    # manifold learning method
+    if projection != Isomap:
+        method = projection(random_state=utils.SEED, n_jobs=-1, **kwargs)
+    else:
+        method = Isomap(n_jobs=-1, **kwargs)
+        
+    emb = method.fit_transform(r[idx])
+    
+    # make dataframe
+    m = np.squeeze(x['m'][mask][idx])
+    
+    if (scaler is not None) and callable(getattr(scaler, 'inverse_transform', None)):
+        m = scaler.inverse_transform(np.reshape(m, newshape=(-1, 1)))
+        m = np.squeeze(m)
+    else:
+        m = mass * m
+    
+    df = pd.DataFrame({'x': emb[:, 0], 'y': emb[:, 1], 'm': np.round(m)})
+    
+    # plot
+    plt.figure(figsize=(12, 10))
+
+    ax = sns.scatterplot(data=df, x='x', y='y', hue='m', legend='full', palette=palette)
+    ax.set_title(f'Intermediate Representation Manifold ({name})')
+    
+    plt.show()
+    free_mem()
+    return df
+
+
+# class Significance(tf.keras.metrics.Metric):
+#     def __init__(self, bins=20, eps=1e-7, **kwargs):
+#         super().__init__(**kwargs)
+        
+#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
+#         self.ams = self.add_weight(name='ams', initializer='zeros')
+    
+#     def update_state(self, true, pred):
+#         sig_mask = true == 1.0
+#         bkg_mask = true == 0.0
+        
+#         ams = []
+        
+#         for i in range(self.cuts.shape[0] - 1):
+#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
+            
+#             # select signals and bkg (as true positives of both classes)
+#             s = tf.shape(pred[sig_mask & cut_mask])[0]
+#             s = tf.cast(s, dtype=tf.float32)
+
+#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
+#             b = tf.cast(b, dtype=tf.float32)
+            
+#             # compute approximate median significance (AMS)
+#             ams.append(s / tf.sqrt(s + b))
+        
+#         self.ams.assign(tf.reduce_max(ams))
+        
+#     def result(self):
+#         return self.ams.value()
+    
+#     def reset_states(self):
+#         self.ams.assign(0.0)
+
+
+# class Significance2(tf.keras.metrics.Metric):
+#     def __init__(self, bins=20, eps=1e-7, **kwargs):
+#         super().__init__(**kwargs)
+    
+#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
+#         self.init_shape = (tf.shape(self.cuts)[0] - 1,)
+
+#         self.sig_count = self.add_weight(name='s', shape=self.init_shape, initializer='zeros',
+#                                          aggregation=tf.VariableAggregation.NONE)
+#         self.bkg_count = self.add_weight(name='b', shape=self.init_shape, initializer='zeros',
+#                                          aggregation=tf.VariableAggregation.NONE)
+    
+#     def update_state(self, true: tf.Tensor, pred: tf.Tensor):
+#         sig_mask = tf.reshape(true == 1.0, shape=[-1])
+#         bkg_mask = tf.logical_not(sig_mask)
+        
+#         sig = []
+#         bkg = []
+        
+#         for i in range(self.cuts.shape[0] - 1):
+#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
+#             cut_mask = tf.reshape(cut_mask, shape=[-1])
+
+#             # select signals and bkg (as true positives of both classes)
+#             s = tf.shape(pred[sig_mask & cut_mask])[0]
+#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
+            
+#             sig.append(s)
+#             bkg.append(b)
+
+#         self.sig_count.assign_add(tf.cast(sig, dtype=tf.float32))
+#         self.bkg_count.assign_add(tf.cast(bkg, dtype=tf.float32))
+    
+#     # @tf.function
+#     def result(self):
+#         s = self.sig_count.value()
+#         b = self.bkg_count.value()
+
+#         # compute approximate median significance (AMS)
+#         ams = s / tf.square(s + b) 
+#         return tf.reduce_max(ams)
+    
+#     def reset_states(self):
+#         self.sig_count.assign(tf.zeros(shape=self.init_shape))
+#         self.bkg_count.assign(tf.zeros(shape=self.init_shape))
+
+
+# class Significance3(tf.keras.metrics.Metric):
+#     def __init__(self, bins=20, eps=1e-7, **kwargs):
+#         super().__init__(**kwargs)
+        
+#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
+#         self.init_shape = (tf.shape(self.cuts)[0] - 1,)
+
+#         self.sig_count = self.add_weight(name='s', shape=self.init_shape, initializer='zeros',
+#                                          aggregation=tf.VariableAggregation.NONE)
+#         self.bkg_count = self.add_weight(name='b', shape=self.init_shape, initializer='zeros',
+#                                          aggregation=tf.VariableAggregation.NONE)
+    
+#     def update_state(self, true: tf.Tensor, pred: tf.Tensor):
+#         sig_mask = tf.reshape(true == 1.0, shape=[-1])
+#         bkg_mask = tf.logical_not(sig_mask)
+        
+#         sig = []
+#         bkg = []
+        
+#         for i in range(self.cuts.shape[0] - 1):
+#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
+#             cut_mask = tf.reshape(cut_mask, shape=[-1])
+
+#             # select signals and bkg (as true positives of both classes)
+#             s = tf.shape(pred[sig_mask & cut_mask])[0]
+#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
+            
+#             sig.append(s)
+#             bkg.append(b)
+
+#         self.sig_count.assign_add(tf.cast(sig, dtype=tf.float32))
+#         self.bkg_count.assign_add(tf.cast(bkg, dtype=tf.float32))
+    
+#     # @tf.function
+#     def result(self):
+#         s = self.sig_count.value()
+#         b = self.bkg_count.value()
+
+#         # compute approximate median significance (AMS)
+#         return s + b
+    
+#     def reset_states(self):
+#         self.sig_count.assign(tf.zeros(shape=self.init_shape))
+#         self.bkg_count.assign(tf.zeros(shape=self.init_shape))

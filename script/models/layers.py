@@ -114,31 +114,3 @@ class MassLossLayer(Layer):
             self.add_loss(tf.reduce_mean(loss))
 
         return labels
-
-
-class DropFeatures(Layer):
-    """A layer that randomly drops some columns (i.e. features) of the input tensor"""
-    
-    def __init__(self, fraction: float, seed=None, **kwargs):
-        assert 0.0 < fraction < 1.0
-        super().__init__(**kwargs)
-
-        self.fraction = fraction
-        self.amount = None
-        self.indices = None
-        self.seed = seed
-
-    def build(self, input_shape):
-        self.amount = int(self.fraction * input_shape[-1])
-        self.indices = tf.range(input_shape[-1])  
-
-    def call(self, inputs):
-        # select `amount` indices
-        indices = tf.random.shuffle(self.indices, seed=self.seed)[:self.amount]
-
-        # build mask
-        # https://stackoverflow.com/questions/50152743/mask-tensor-with-0-according-to-value-at-some-specific-index-at-the-inner-most-d
-        # https://towardsdatascience.com/how-to-replace-values-by-index-in-a-tensor-with-tensorflow-2-0-510994fe6c5f
-        
-        # output = mask * inputs
-        pass

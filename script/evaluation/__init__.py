@@ -72,8 +72,8 @@ def split_data(data: tuple, num_folds=10, seed=utils.SEED):
     return folds
 
 
-def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: Union[np.ndarray, List[tuple]] = None,
-                      figsize=(12, 9), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
+def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: Union[np.ndarray, List[tuple]] = None, batch_size=1024,
+                      figsize=(12, 10), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, show=True, **kwargs):
     """Computes given metric on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
     assert_2d_array(mass_intervals)
     plt.figure(figsize=figsize)
@@ -94,7 +94,7 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
         folds = split_data(data=(x, y), num_folds=num_folds)
         
         for i, fold in enumerate(folds):
-            score = model.evaluate(x=fold[0], y=fold[1], batch_size=128, verbose=verbose)
+            score = model.evaluate(x=fold[0], y=fold[1], batch_size=batch_size, verbose=verbose)
 
             metric_score = round(score[index], 4)
             metric[i].append(check_underflow(metric_score, score[1]))  # use accuracy as reference
@@ -153,15 +153,16 @@ def metric_with_error(model, dataset, metric: str, index: int, mass_intervals: U
     return metric
 
 
-def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, show=True,
-                   figsize=(12, 9), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
+def auc_with_error(model, dataset, index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, show=True, batch_size=1024,
+                   figsize=(12, 10), num_folds=10, verbose=0, silent=False, style='bar', return_average=True, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much uncertain the predictions are"""
 
     return metric_with_error(model, dataset, metric='AUC', index=index, mass_intervals=mass_intervals, figsize=figsize, show=show,
-                             num_folds=num_folds, verbose=verbose, silent=silent, style=style, return_average=return_average, **kwargs)
+                             num_folds=num_folds, verbose=verbose, silent=silent, style=style, return_average=return_average, 
+                             batch_size=batch_size, **kwargs)
 
 
-def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, 
+def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, batch_size=128,
                    fake_mass=[], figsize=(26, 20), verbose=0, silent=False, sample_frac=None, avg_auc=None, **kwargs):
     """Computes AUC by faking the true mass"""
     assert_2d_array(mass_intervals)
@@ -189,7 +190,7 @@ def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray
         for fake_m in scaled_fake_mass:
             x['m'] = np.ones_like(x['m']) * fake_m
         
-            score = model.evaluate(x=x, y=y, batch_size=128, verbose=verbose)
+            score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=verbose)
             
             auc_score = round(score[auc_index], 4)
             auc[fake_m].append(check_underflow(auc_score, score[1]))
@@ -214,7 +215,7 @@ def auc_vs_no_mass(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray
 
 
 def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[np.ndarray, List[tuple]] = None, 
-                            figsize=(26, 20), features={}, verbose=1, silent=False, sample_frac=None, 
+                            figsize=(26, 20), features={}, verbose=1, silent=False, sample_frac=None, batch_size=128,
                             transformer=None, transform_before=True):
     """Computes AUC by dropping one or more features"""
     assert_2d_array(mass_intervals)
@@ -247,7 +248,7 @@ def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[n
             if not silent:
                 print(f'Mass: {np.round(interval, 2)} -> {round(np.mean(interval), 2)}')
     
-            score = model.evaluate(x=x, y=y, batch_size=128, verbose=verbose)
+            score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=verbose)
             
             auc_score = round(score[auc_index], 4)
             auc[label].append(check_underflow(auc_score, score[1]))
@@ -267,7 +268,7 @@ def auc_vs_mass_no_features(model, dataset, auc_index=2, mass_intervals: Union[n
 
 
 def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_intervals: Union[np.ndarray, List[tuple]] = None,
-                        figsize=(26, 20), verbose=0, silent=False, reference=None, **kwargs):
+                        figsize=(26, 20), verbose=0, silent=False, reference=None, batch_size=128, **kwargs):
     """Computes AUC on disjoint folds of the given data, quantifying how much the mass helps the classification"""
     assert_2d_array(mass_intervals)
     assert isinstance(mass, (list, tuple, np.ndarray))
@@ -292,7 +293,7 @@ def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_interva
         for j, m in enumerate(scaled_mass):    
             x['m'] = np.ones_like(x['m']) * m
 
-            score = model.evaluate(x, y, batch_size=128, verbose=verbose)
+            score = model.evaluate(x, y, batch_size=batch_size, verbose=verbose)
 
             auc_score = round(score[auc_index], 4)
             auc[m].append(check_underflow(auc_score, score[1]))
@@ -317,7 +318,8 @@ def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_interva
     return auc
 
 
-def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, size=4):
+def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, ams_eq=2, size=4,
+                      batch_size=512, **kwargs):
     from script.datasets import Dataset
     assert isinstance(dataset, Dataset)
 
@@ -333,20 +335,20 @@ def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, s
     fig.set_figwidth(int(size * 5))
     fig.set_figheight(int(size * 5))
     
-    plt.suptitle(f'[Dataset] {name}\'s Output Distribution + Significance', 
+    plt.suptitle(f'[Dataset] {name}\'s Output Distribution & Significance', 
                  y=1.02, verticalalignment='top')
     
     for i, interval in enumerate(dataset.current_mass_intervals + [None]):
         ax = axes[i]
         
         if interval is None:
-            x, y = dataset.get(sample=sample_frac)
+            x, y = dataset.get(sample=sample_frac, **kwargs)
             title = 'Total'
         else:
-            x, y = dataset.get_by_mass(interval, sample=sample_frac)
+            x, y = dataset.get_by_mass(interval, sample=sample_frac, **kwargs)
             title = f'{int(np.mean(interval))} GeV'
             
-        out = model.predict(x, batch_size=128, verbose=0)
+        out = model.predict(x, batch_size=batch_size, verbose=0)
         out = np.asarray(out)
         
         sig_mask = y == 1.0
@@ -364,7 +366,7 @@ def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, s
         for i in range(len(cuts) - 1):
             lo, up = cuts[i], cuts[i + 1]
             
-            cut_mask = (out > lo) & (out <= up)
+            cut_mask = out >= lo
             
             # select signals and bkg
             s = out[sig_mask & cut_mask].shape[0]
@@ -377,7 +379,9 @@ def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, s
                 val = safe_div(s, np.sqrt(s + b))
             else:
                 val = safe_div(s, np.sqrt(b))
-        
+            
+            ams.append(val)
+
         k = np.argmax(ams)
         
         bx.grid(False)
@@ -394,3 +398,58 @@ def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, s
         ax.legend(loc='best')
     
     fig.tight_layout()
+
+
+def plot_mass_reliance(model, dataset, auc=None, auc_index=2, name='pNN', size=(12, 10), 
+                       legend='best', batch_size=1024, **kwargs):
+    from script.datasets import Hepmass,  Dataset, FairDataset
+
+    if isinstance(dataset, (Hepmass, FairDataset)):
+        mass = dataset.unique_mass
+    else:
+        mass = dataset.current_mass_intervals
+
+    if auc is None:
+        auc = []
+        compute_auc = True
+    else:
+        compute_auc = False
+
+    # compute auc on zeroed features
+    zero_auc = []
+
+    for i, m in enumerate(mass):
+        x, y = dataset.get_by_mass(m, **kwargs)
+
+        if compute_auc:
+            score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=0)
+            auc.append(round(score[auc_index], 4))
+
+        # zero features, then evaluate
+        x['x'] = np.zeros_like(x['x'])
+
+        score = model.evaluate(x=x, y=y, batch_size=batch_size, verbose=0)
+        zero_auc.append(round(score[auc_index], 4))
+
+    # compute metric
+    metric =  200 * np.abs(np.minimum(np.array(zero_auc) / np.array(auc), 1.0) - 0.5)
+
+    # plot
+    plt.figure(figsize=size)
+
+    plt.title(f'Mass Reliance ({name})')
+    plt.xlabel('Mass (GeV)')
+    plt.ylabel('%')
+
+    label = r'$m_{r}$' + f': {np.round(np.mean(metric), 1)}%'
+
+    if isinstance(dataset, (Hepmass, FairDataset)):
+        plt.plot(mass, metric, marker='o', label=label)
+    else:
+        plt.plot(dataset.unique_signal_mass, metric, marker='o', label=label)
+
+    plt.legend(loc=legend)
+    plt.show()
+
+    return metric, auc, zero_auc
+

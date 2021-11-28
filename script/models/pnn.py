@@ -14,6 +14,35 @@ from script.models.layers import Linear
 from typing import Dict
 
 
+class FocalLoss(tf.keras.losses.Loss):
+    def __init__(self, gamma=2.0, eps=1e-5, **kwargs):
+        super().__init__(**kwargs)
+        
+        self.gamma = tf.constant(float(gamma), dtype=tf.float32)
+        self.eps = tf.constant(float(eps), dtype=tf.float32)
+    
+    @tf.function
+    def __call__(self, y, p, sample_weight=None):
+        # `y = y_true`, `p = y_pred`
+        q = 1 - p
+
+        # For numerical stability (so we don't inadvertently take the log of 0)
+        p = tf.math.maximum(p, self.eps)
+        q = tf.math.maximum(q, self.eps)
+
+        # Loss for the positive examples
+        if tf.is_tensor(sample_weight) or isinstance(sample_weight, (tf.Tensor, np.ndarray)):
+            pos_loss = -sample_weight * (q ** self.gamma) * tf.math.log(p)
+        else:
+            pos_loss = -(q ** self.gamma) * tf.math.log(p)
+
+        # Loss for the negative examples
+        neg_loss = -(p ** self.gamma) * tf.math.log(q)
+
+        loss = y * pos_loss + (1.0 - y) * neg_loss
+        return loss
+
+
 class WrappedAUC:
     def __init__(self, name='wrapped_auc'):
         self.auc = tf.keras.metrics.AUC(name=name)

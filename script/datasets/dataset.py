@@ -152,7 +152,7 @@ class Dataset:
         # DO NOT reset index
         
         # mass intervals
-        self.unique_signal_mass = sorted(self.signal['mA'].unique())
+        self.unique_signal_mass = np.sort(self.signal['mA'].unique())
 
         assert mass_column in self.ds.columns
         self.mass_column = mass_column

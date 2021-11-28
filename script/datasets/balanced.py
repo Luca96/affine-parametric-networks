@@ -163,17 +163,65 @@ class FairDataset:
         
         self.scaler = scaler
         
-    def load(self, select_mass: list = None, balance=True, validation_size=0.25, test_size=0.2, verbose=False):
+    def load(self, signal: Union[str, pd.DataFrame] = None, bkg: Union[str, pd.DataFrame] = None, 
+             select_mass: list = None, balance=True, validation_size=0.25, test_size=0.2, verbose=False,
+             name_col='bkg_name', aggregate_names=True):
+        '''load'''
         if isinstance(self.df, pd.DataFrame):
             print('[Dataset] already loaded.')
             return
         
-        print('[signal] loading...')
-        signal = pd.read_csv(self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
+        # load or provide signal
+        if signal is None or isinstance(signal, str):
+            print('[signal] loading...')
+            signal = pd.read_csv(signal or self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
         
-        print('[background] loading...')
-        background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
+        elif isinstance(signal, pd.DataFrame):
+            signal = signal
+        else:
+            raise ValueError
+
+        # print('[signal] loading...')
+        # signal = pd.read_csv(self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
         
+        # load or provide background
+        if bkg is None or isinstance(bkg, str):
+            print('[background] loading...')
+            background = pd.read_csv(bkg or self.BACKGROUND_PATH, na_filter=False)
+
+        elif isinstance(bkg, pd.DataFrame):
+            background = bkg
+        else:
+            raise ValueError
+
+        # print('[background] loading...')
+        # background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
+        
+        # keep track of names if available:
+        if isinstance(name_col, str) and name_col in background.columns:
+            names = background[name_col]
+
+            if aggregate_names:
+                def convert_names(x):
+                    if 'ST_' in x:
+                        return 'ST'
+                    
+                    if 'diboson_' in x:
+                        return 'diboson'
+                    
+                    return x
+
+                new_names = names.apply(convert_names)
+
+                self.names_df = pd.DataFrame({'name': new_names})
+                self.original_names = pd.DataFrame({'name': names})
+            else:
+                self.names_df = pd.DataFrame({'name': names})
+                self.original_names = self.names_df.copy()
+
+            background.drop(columns=[name_col], inplace=True)
+
+        # select masses
         self.all_mass = sorted(signal['mA'].unique())
         self.max_mass = np.max(self.all_mass)
         
@@ -187,8 +235,8 @@ class FairDataset:
             signal = signal[mask]
             utils.free_mem()
         
-        self.df = pd.concat([signal, background])
-        self.df.reset_index(inplace=True)
+        self.df = pd.concat([signal, background], ignore_index=True)
+        # self.df.reset_index(inplace=True)
         
         # select from `df` (all data), signal and background
         self.signal_df = self.df[self.df['type'] == 1.0]

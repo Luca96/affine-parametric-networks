@@ -84,7 +84,7 @@ def dataset_from_tensors(tensors, batch_size: int, split=0.25, seed=SEED):
     validation_set = validation_set.batch(batch_size)
     
     free_mem()
-    return training_set, validation_set
+    return training_set.prefetch(2), validation_set.prefetch(2)
 
 
 def pca_plot(pca: PCA, title='PCA', **kwargs):
@@ -129,7 +129,8 @@ def plot_history(history, cols: int, rows: int, title: str, figsize=(30, 20), **
             break
 
 
-def compare_plot(mass, size=(12, 10), title='Comparison', x_label='x', y_label='y', legend='best', **kwargs):
+def compare_plot(mass, size=(12, 10), title='Comparison', x_label='x', y_label='y', legend='best', 
+                 path='plot', save=None, **kwargs):
     plt.figure(figsize=(12, 10))
 
     plt.title(title)
@@ -140,6 +141,11 @@ def compare_plot(mass, size=(12, 10), title='Comparison', x_label='x', y_label='
         plt.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v).item(), 2)}')
     
     plt.legend(loc=legend)
+
+    if isinstance(save, str):
+        path = makedir(path)
+        plt.savefig(os.path.join(path, f'{save}.png'), bbox_inches='tight')
+
     plt.show()
 
 
@@ -150,7 +156,7 @@ def plot_model(model: tf.keras.Model, show_shapes=False, layer_names=True, rankd
                                      expand_nested=expand_nested, dpi=dpi, **kwargs)
 
 
-def get_dataset(dataset, split: str, batch_size: int, **kwargs):
+def get_dataset(dataset, split: str, batch_size: int, sample_weights=False, **kwargs):
     from script.datasets import FairDataset, DataSequence
     assert isinstance(dataset, FairDataset)
     
@@ -159,27 +165,37 @@ def get_dataset(dataset, split: str, batch_size: int, **kwargs):
     def gen():    
         for i in range(len(sequence)):
             yield sequence[0]
-            
-    tf_data = tf.data.Dataset.from_generator(
-        gen, 
-        output_types=({'x': tf.float32, 'm': tf.float32}, tf.float32))
+    
+    if sample_weights:
+        # {features, mass}, label, sample-weights
+        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32, tf.float32)
+    else:
+        # {features, mass}, label
+        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32)
+
+    tf_data = tf.data.Dataset.from_generator(gen, output_types=out_types)
     
     return tf_data.prefetch(3)
 
 
-def dataset_from_sequence(sequence: tf.keras.utils.Sequence, prefetch=2):
+def dataset_from_sequence(sequence: tf.keras.utils.Sequence, sample_weights=False, prefetch=2):
     def gen():    
         for i in range(len(sequence)):
             yield sequence[0]
-            
-    tf_data = tf.data.Dataset.from_generator(
-        gen, 
-        output_types=({'x': tf.float32, 'm': tf.float32}, tf.float32))
+    
+    if sample_weights:
+        # {features, mass}, label, sample-weights
+        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32, tf.float32)
+    else:
+        # {features, mass}, label
+        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32)
+
+    tf_data = tf.data.Dataset.from_generator(gen, output_types=out_types)
     
     return tf_data.prefetch(prefetch)
 
 
-def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights'):
+def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights', mode='max'):
     """Load the weights of a pre-built model"""
     path = os.path.join(base_dir, path)
     
@@ -191,14 +207,18 @@ def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights'):
 
     # keep only weights files
     files = filter(lambda x: 'data-' in x[1], files)  
-
+    
     # from tuples get only path; remove ext
     files = map(lambda x: x[0], files)  
-
-    # TODO: this may be not true when training is resumed..
-    # sort by epoch number (best models have higher epoch number)
-    files = sorted(files)
     
+    # zip files with metric value
+    files_and_metric = map(lambda x: (x, x.split('-')[-1]), files)
+    
+    # sort by metric value
+    files = sorted(files_and_metric, key=lambda x: x[-1], reverse=mode.lower() == 'min')
+    files = map(lambda x: x[0], files)
+    files = list(files)
+        
     # load the best weights
     print(f'Loaded from "{files[-1]}"')
     model.load_weights(files[-1])
@@ -212,12 +232,13 @@ def get_checkpoint(path: str, monitor='val_auc'):
                            mode='max', save_best_only=True)
 
 
-def get_compiled_model(cls, data, units: list = None, save: str = None, **kwargs):
+def get_compiled_model(cls, data, units: list = None, save: str = None, curve='ROC', **kwargs):
     from tensorflow.keras.metrics import AUC, Precision, Recall
     from script.datasets import Hepmass, Dataset
 
     opt = kwargs.pop('optimizer', {})
     lr = kwargs.pop('lr', 1e-3)
+    compile_args = kwargs.pop('compile', {})
 
     monitor = kwargs.pop('monitor', 'val_auc')
 
@@ -231,8 +252,8 @@ def get_compiled_model(cls, data, units: list = None, save: str = None, **kwargs
     model = cls(input_shapes=dict(m=(1,), x=features_shape), 
                 units=units, **kwargs)
 
-    model.compile(lr=lr, **opt,
-                  metrics=['binary_accuracy', AUC(name='auc'), 
+    model.compile(lr=lr, **opt, **compile_args,
+                  metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
                            Precision(name='precision'), Recall(name='recall'),
                            # Significance2(name='sig2'), 
                            # Significance3(name='sig3')

@@ -91,8 +91,8 @@ class Dataset:
         # keep sample weights
         self.weights_df = None
     
-    def load(self, signal: Union[str, pd.DataFrame] = None, bkg: Union[str, pd.DataFrame] = None, test_size=0.2, mass_column='mA',
-             mass_intervals: Union[np.ndarray, List[tuple]] = None, change_bkg_mass=False, feature_columns=None, robust=False, 
+    def load(self, signal: Union[str, list, pd.DataFrame] = None, bkg: Union[str, list, pd.DataFrame] = None, test_size=0.2, 
+             mass_intervals: Union[np.ndarray, List[tuple]] = None, change_bkg_mass=False, feature_columns=None, mass_column='mA',
              multi_class=False, sample_bkg=False, add_var=False):
         """Loads the signal+background data:
             - selects feature columns,
@@ -107,27 +107,35 @@ class Dataset:
         if self.ds is not None:
             return
 
-        if signal is None or isinstance(signal, str):
-            print('[signal] loading...')
-            self.signal = pd.read_csv(signal or self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
+        # if signal is None or isinstance(signal, str):
+        #     print('[signal] loading...')
+        #     self.signal = pd.read_csv(signal or self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
         
-        elif isinstance(signal, pd.DataFrame):
-            self.signal = signal
-        else:
-            raise ValueError
+        # elif isinstance(signal, pd.DataFrame):
+        #     self.signal = signal
+        # else:
+        #     raise ValueError
 
+        # loading SIGNAL
+        print('[signal] loading...')
+
+        self.signal = self._load_csv(signal, default_path=self.SIGNAL_PATH)
         self.signal['name'] = 'signal'
 
-        if bkg is None or isinstance(bkg, str):
-            print('[background] loading...')
-            # self.background = pd.read_csv(self.BACKGROUND_PATH, dtype=np.float32, na_filter=False)
-            self.background = pd.read_csv(bkg or self.BACKGROUND_PATH2, na_filter=False)
+        # loading BACKGROUND
+        print('[background] loading...')
 
-        elif isinstance(bkg, pd.DataFrame):
-            self.background = bkg
-        else:
-            raise ValueError
+        # if bkg is None or isinstance(bkg, str):
+        #     print('[background] loading...')
+        #     self.background = pd.read_csv(bkg or self.BACKGROUND_PATH2, dtype=np.float32, na_filter=False)
+
+        # elif isinstance(bkg, pd.DataFrame):
+        #     self.background = bkg
+        # else:
+        #     raise ValueError
         
+        self.background = self._load_csv(bkg, default_path=self.BACKGROUND_PATH2)
+
         if 'bkg_name' in self.background.columns:
             def convert(x):
                 if 'ST_' in x:
@@ -135,6 +143,9 @@ class Dataset:
                 
                 if 'diboson_' in x:
                     return 'diboson'
+
+                if 'ZMM_' in x:
+                    return 'DY'
                 
                 return x
 
@@ -206,10 +217,10 @@ class Dataset:
         if add_var:
             self.columns['feature'].append('dimuon_pt_M')
 
-        # remove outliers
-        if robust:
-            print('[Dataset] clipping outliers..')
-            self._clip_outliers()
+        # # remove outliers
+        # if robust:
+        #     print('[Dataset] clipping outliers..')
+        #     self._clip_outliers()
     
         # train-test split:
         self.train_df, self.test_df = train_test_split(self.ds, test_size=test_size, 
@@ -364,6 +375,26 @@ class Dataset:
 
         return tf.keras.utils.to_categorical(bins, num_classes=len(self.unique_signal_mass))
     
+    def _load_csv(self, csv: Union[str, list, pd.DataFrame], default_path: str, dtype=np.float32) -> pd.DataFrame:
+        if csv is None or isinstance(csv, str):
+            return self._safe_convert(pd.read_csv(csv or default_path, dtype=None, na_filter=False), dtype)
+        
+        elif isinstance(csv, pd.DataFrame):
+            return self._save_convert(csv, dtype)
+
+        elif isinstance(csv, (list, tuple)):
+            return pd.concat([self._load_csv(x, default_path, dtype) for x in csv], ignore_index=True)
+        else:
+            raise ValueError
+
+    def _safe_convert(self, df: pd.DataFrame, dtype=np.float32):
+        # convert only columns that are not "object" nor "string"
+        mask = (df.dtypes != 'object') & (df.dtypes != 'string')
+        columns = list(df.dtypes[mask].index)
+
+        df[columns] = df[columns].astype(dtype, copy=False)
+        return df 
+
     def _select_mass(self, intervals: Union[list, np.ndarray]):
         """Selects only the given mass from the dataframe"""
         mask = np.full(shape=(len(self.ds),), fill_value=False)

@@ -2,6 +2,7 @@
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 from tensorflow.keras.layers import *
 from tensorflow.keras import optimizers as tfo
@@ -11,7 +12,7 @@ from script.utils import tf_global_norm
 from script.models.parameters import DynamicParameter
 from script.models.layers import Linear
 
-from typing import Dict
+from typing import Dict, Union
 
 
 class FocalLoss(tf.keras.losses.Loss):
@@ -61,16 +62,18 @@ class PNN(tf.keras.Model):
     """A Parametric Neural Network (PNN) model"""
     
     def __init__(self, input_shapes: dict, num_classes=2, track_mass_reliance=False,  mass_values=None, adversarial=0.0,
-                 mass=None, sample_mass=None, bins=20, eps=1e-7, fooling: dict = None, **kwargs):
+                 mass=None, sample_mass=None, bins=20, eps=1e-7, fooling: dict = None, bayesian=False, lambda_=1.0, **kwargs):
         assert num_classes >= 2
 
         name = kwargs.pop('name', 'ParametricNN')
         self.num_classes = int(num_classes)
+        self.is_bayesian = bool(bayesian)
         
         inputs, outputs = self.structure(input_shapes, **kwargs)
         super().__init__(inputs, outputs, name=name)
 
         self.lr = None
+        self.lambda_ = tf.reshape(tf.constant(lambda_, dtype=tf.float32), shape=[1])
 
         # mass reliance
         if track_mass_reliance:
@@ -120,13 +123,13 @@ class PNN(tf.keras.Model):
         else:
             self.should_be_adversarial = False
 
-        # significance (AMS)
-        self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
-        self.init_shape = (tf.shape(self.cuts)[0] - 1,)
+        # # significance (AMS)
+        # self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
+        # self.init_shape = (tf.shape(self.cuts)[0] - 1,)
 
-        self.sig = tf.Variable(tf.zeros(self.init_shape), trainable=False)
-        self.bkg = tf.Variable(tf.zeros(self.init_shape), trainable=False)
-        
+        # self.sig = tf.Variable(tf.zeros(self.init_shape), trainable=False)
+        # self.bkg = tf.Variable(tf.zeros(self.init_shape), trainable=False)
+
     def compile(self, optimizer_class=tfo.Adam, loss=None, metrics=None, lr=0.001, **kwargs):
         self.lr = DynamicParameter.create(value=lr)
 
@@ -175,7 +178,10 @@ class PNN(tf.keras.Model):
             x = Linear(units=units.pop(0), **kwargs)(x)
 
         for num_units in units:
-            x = Dense(units=num_units, activation=activation, **kwargs)(x)
+            if self.is_bayesian:
+                x = tfp.layers.DenseFlipout(units=num_units, activation=activation)(x) 
+            else:
+                x = Dense(units=num_units, activation=activation, **kwargs)(x)
             
             if apply_dropout:
                 if is_selu:
@@ -229,8 +235,13 @@ class PNN(tf.keras.Model):
         with tf.GradientTape() as tape:
             classes = self(x, training=True)
             
-            loss = self.compiled_loss(labels, classes, 
-                                      regularization_losses=self.losses, sample_weight=sample_weight)
+            if self.is_bayesian:
+                kl_loss = tf.reduce_sum(self.losses) * self.lambda_
+
+                loss = self.compiled_loss(labels, classes, sample_weight=sample_weight)
+            else:
+                loss = self.compiled_loss(labels, classes, 
+                                          regularization_losses=self.losses, sample_weight=sample_weight)
             
             if self.should_fool:
                 fool_loss = self.compiled_loss(y_fool, self(x_fool, training=True))
@@ -246,6 +257,9 @@ class PNN(tf.keras.Model):
             
             total_loss = loss + adv_loss + fool_loss
 
+            if self.is_bayesian:
+                total_loss += kl_loss
+
         weight_norm, global_norm, lr = self.apply_gradients(tape, total_loss)
         self.lr.on_step()
 
@@ -258,17 +272,20 @@ class PNN(tf.keras.Model):
         debug['weight-norm'] = weight_norm
         debug['adversarial-loss'] = adv_loss
         debug['reg-losses'] = tf.reduce_sum(self.losses)
+
+        if self.is_bayesian:
+            debug['kl-loss'] = kl_loss
         
         if self.should_track_mass_reliance:
             debug['mass-reliance'] = self.get_mass_reliance(x, true=labels)
 
         return debug
     
-    def reset_metrics(self):
-        super().reset_metrics()
+    # def reset_metrics(self):
+    #     super().reset_metrics()
 
-        self.sig.assign(tf.zeros(self.init_shape))
-        self.bkg.assign(tf.zeros(self.init_shape))
+    #     self.sig.assign(tf.zeros(self.init_shape))
+    #     self.bkg.assign(tf.zeros(self.init_shape))
 
     def apply_gradients(self, tape, loss):
         variables = self.trainable_variables
@@ -357,8 +374,7 @@ class PNN(tf.keras.Model):
 
         return dict(x=sig_, m=mass), y
 
-    # TODO: bug, it gets to zero...
-    def compute_significance(self, true: tf.Tensor, pred: tf.Tensor):
+    # def compute_significance(self, true: tf.Tensor, pred: tf.Tensor):
         sig_mask = tf.reshape(true == 1.0, shape=[-1])
         bkg_mask = tf.logical_not(sig_mask)
         

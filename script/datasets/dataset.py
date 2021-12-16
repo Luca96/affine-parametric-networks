@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_probability as tfp
+import enum
 
 from sklearn.model_selection import train_test_split
 
@@ -15,6 +16,7 @@ from typing import Union, List
 class Dataset:
     """Class that wraps Tommaso's MC data"""
 
+    # TODO: edit default paths
     SIGNAL_PATH = os.path.join('data', 'signal.csv')
     BACKGROUND_PATH = os.path.join('data', 'background.csv')
     BACKGROUND_PATH2 = os.path.join('data', 'mcs', 'background_physweight2.csv')
@@ -91,6 +93,7 @@ class Dataset:
         # keep sample weights
         self.weights_df = None
     
+    # TODO: remove all the unused methods
     def load(self, signal: Union[str, list, pd.DataFrame] = None, bkg: Union[str, list, pd.DataFrame] = None, test_size=0.2, 
              mass_intervals: Union[np.ndarray, List[tuple]] = None, change_bkg_mass=False, feature_columns=None, mass_column='mA',
              multi_class=False, sample_bkg=False, add_var=False):
@@ -107,15 +110,6 @@ class Dataset:
         if self.ds is not None:
             return
 
-        # if signal is None or isinstance(signal, str):
-        #     print('[signal] loading...')
-        #     self.signal = pd.read_csv(signal or self.SIGNAL_PATH, dtype=np.float32, na_filter=False)
-        
-        # elif isinstance(signal, pd.DataFrame):
-        #     self.signal = signal
-        # else:
-        #     raise ValueError
-
         # loading SIGNAL
         print('[signal] loading...')
 
@@ -125,15 +119,6 @@ class Dataset:
         # loading BACKGROUND
         print('[background] loading...')
 
-        # if bkg is None or isinstance(bkg, str):
-        #     print('[background] loading...')
-        #     self.background = pd.read_csv(bkg or self.BACKGROUND_PATH2, dtype=np.float32, na_filter=False)
-
-        # elif isinstance(bkg, pd.DataFrame):
-        #     self.background = bkg
-        # else:
-        #     raise ValueError
-        
         self.background = self._load_csv(bkg, default_path=self.BACKGROUND_PATH2)
 
         if 'bkg_name' in self.background.columns:
@@ -141,11 +126,17 @@ class Dataset:
                 if 'ST_' in x:
                     return 'ST'
                 
+                if 'TTbar' in x:
+                    return 'TTbar'
+
                 if 'diboson_' in x:
                     return 'diboson'
 
+                # if 'ZMM_' in x:
+                #     return 'DY'
+
                 if 'ZMM_' in x:
-                    return 'DY'
+                    return 'ZMM'
                 
                 return x
 
@@ -173,7 +164,7 @@ class Dataset:
         else:
             self.current_mass_intervals = self.MASS_INTERVALS
         
-        self.signal_mass_bins = [x for x, _ in self.current_mass_intervals] + [1050]  # for `tfp.stats.find_bins` only
+        self.signal_mass_bins = [x for x, _ in self.current_mass_intervals] + [self.ds['dimuon_M'].max() + 1.0]  # for `tfp.stats.find_bins` only
         self.signal_mass_bins = tf.constant(self.signal_mass_bins, dtype=tf.float32)
         
         # bkg's mass is uniformly distributed, make it distributes as signal's mass
@@ -380,7 +371,7 @@ class Dataset:
             return self._safe_convert(pd.read_csv(csv or default_path, dtype=None, na_filter=False), dtype)
         
         elif isinstance(csv, pd.DataFrame):
-            return self._save_convert(csv, dtype)
+            return self._safe_convert(csv, dtype)
 
         elif isinstance(csv, (list, tuple)):
             return pd.concat([self._load_csv(x, default_path, dtype) for x in csv], ignore_index=True)

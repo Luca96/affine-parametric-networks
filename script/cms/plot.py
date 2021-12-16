@@ -18,20 +18,27 @@ from script.cms.data import sample
 from typing import Union
 
 
-def significance(model, dataset: Dataset, mass: int, category: int, signal: str, delta=50, 
-                 bins=20, size=(12, 10), legend='best', name='Model',
-                 path='plot', save=None, show=True, ax=None, ratio=False):
+PALETTE = {'DY': 'green', 'TTbar': 'red', 'ST': 'blue', 'diboson': 'yellow', 
+           'ZMM': 'purple', 'signal': 'black'}
+
+
+def significance(model, dataset: Dataset, mass: int, title='', interval=50, digits=4,
+                 bins=20, size=(12, 10), legend='best', name='Model', palette=PALETTE,
+                 path='plot', save=None, show=True, ax=None, weight_column='weight', ratio=False):
     """Plots the output distribution of the model, along it's weighted significance"""
     if ax is None:
         fig = plt.figure(figsize=size)
         ax = fig.gca()
     
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
+
     # select both signal and background in interval (m-d, m+d)
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
 
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     num_sig = sig.shape[0]
     
@@ -49,8 +56,8 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     y_sig = np.squeeze(out[y == 1.0])
     y_bkg = np.squeeze(out[y == 0.0])
 
-    w_bkg = bkg['weight'].values
-    w_sig = np.ones_like(y_sig)
+    w_bkg = bkg[weight_column].values
+    w_sig = sig[weight_column].values
     
     # plot
     names = dataset.names_df.loc[bkg.index.values]
@@ -59,7 +66,7 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     # plot histograms
     sns.histplot(data=df, x='Output', hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
                  weights='weight', ax=ax, binrange=(0.0, 1.0),
-                 palette={'DY': 'green', 'TTbar': 'red', 'ST': 'blue', 'diboson': 'yellow'})
+                 palette=palette)
     
     h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
     h_bkg = np.sum(h_bkg)
@@ -67,11 +74,11 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     h_sig, _ = np.histogram(y_sig, bins=bins)
     h_sig = np.sum(h_sig)
     
-    w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
+    w_sig = w_sig * (h_bkg / h_sig)
     
-    ax.hist(y_sig, bins=bins, alpha=0.5, label='signal', color='purple', edgecolor='purple', 
-            linewidth=2, hatch='//', histtype='step', range=(0.0, 1.0),
-            weights=w_sig)
+    ax.hist(y_sig, bins=bins, alpha=0.5, label='signal', color=palette['signal'], 
+            edgecolor=palette['signal'], linewidth=2, hatch='//', histtype='step', 
+            range=(0.0, 1.0), weights=w_sig)
     
     # compute significance
     sig_mask = np.squeeze(y == 1.0)
@@ -102,7 +109,7 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     bx.plot(cuts, ams, color='g', label='Significance')
 
     ax.axvline(x=cuts[k], linestyle='--', linewidth=2, color='g',
-               label=f'{round(cuts[k], 3)}: {round(ams[k], 3)}')
+               label=f'{round(cuts[k], digits)}: {round(ams[k].item(), digits)}')
     
     if ratio:
         bx.set_ylabel(r'Significance Ratio: $(s\cdot\sqrt{s_\max}) /(s_\max\cdot\sqrt{s+b})$')
@@ -117,9 +124,9 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     ax.set_ylabel('Weighted Num. Events')
     
     # title
-    str0 = f'Category-{category} (#bins = {bins})'
-    str1 = f'@{(int(mass - delta), int(mass + delta))} dimuon_M (bkg)'
-    str2 = f'{name} Output Distribution @ {int(mass)}mA (signal {signal}), {str1}'
+    str0 = f'{title} (#bins = {bins})'
+    str1 = f'@{interval} dimuon_M (bkg)'
+    str2 = f'{name} Output Distribution @ {int(mass)}mA, {str1}'
     str3 = f'# signal = {sig.shape[0]}, # bkg = {bkg.shape[0]}'
     
     ax.set_title(f'{str0}\n{str2}\n{str3}')
@@ -134,17 +141,17 @@ def significance(model, dataset: Dataset, mass: int, category: int, signal: str,
     return np.max(ams), cuts[k]
 
 
-def _compute_significance(model, dataset: Dataset, delta=50, bins=20):
+def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight'):
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
     
-    for mass in dataset.unique_signal_mass:
+    for mass, interval in zip(dataset.unique_signal_mass, dataset.mass_intervals):
         # select both signal and background in interval (m-d, m+d)
         sig = dataset.signal[dataset.signal['mA'] == mass]
-        sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+        sig = sig[(sig['dimuon_M'] > interval[0]) & (sig['dimuon_M'] < interval[1])]
 
         bkg = dataset.background
-        bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+        bkg = bkg[(bkg['dimuon_M'] > interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
         # prepare data
         x = pd.concat([sig[dataset.columns['feature']],
@@ -161,8 +168,8 @@ def _compute_significance(model, dataset: Dataset, delta=50, bins=20):
         y_bkg = np.squeeze(out[y == 0.0])
         
         # compute weights
-        w_bkg = bkg['weight'].values
-        w_sig = np.ones_like(y_sig)
+        w_bkg = bkg[weight_column].values
+        w_sig = sig[weight_column].values
     
         h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
         h_bkg = np.sum(h_bkg)
@@ -170,8 +177,8 @@ def _compute_significance(model, dataset: Dataset, delta=50, bins=20):
         h_sig, _ = np.histogram(y_sig, bins=bins)
         h_sig = np.sum(h_sig)
 
-        w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
-    
+        w_sig = w_sig * (h_bkg / h_sig)    
+
         # compute significance
         sig_mask = np.squeeze(y == 1.0)
         bkg_mask = np.squeeze(y == 0.0)
@@ -186,13 +193,12 @@ def _compute_significance(model, dataset: Dataset, delta=50, bins=20):
 
             ams_.append(s_i / np.sqrt(s_i + b_i))
 
-        # k = np.argmax(ams)
         ams.append(ams_)
     
     return np.max(ams, axis=-1), cuts[np.argmax(ams, axis=-1)]
 
 
-def compare_significance(models: list, dataset: Dataset, mass: float, category: int, *args, path='plot', save=None, 
+def compare_significance(models: list, dataset: Dataset, mass: float, *args, path='plot', save=None, 
                          size=(12, 10), share_y=True, **kwargs):
     fig, axes = plt.subplots(nrows=1, ncols=len(models), sharey=bool(share_y))
     
@@ -200,7 +206,7 @@ def compare_significance(models: list, dataset: Dataset, mass: float, category: 
     fig.set_figheight(size[1])
     
     for i, model in enumerate(models):
-        significance(model, dataset, mass, category, *args, **kwargs, save=None, show=False, ax=axes[i])
+        significance(model, dataset, mass, *args, **kwargs, save=None, show=False, ax=axes[i])
     
     if isinstance(save, str):
         path = utils.makedir(path)
@@ -209,7 +215,7 @@ def compare_significance(models: list, dataset: Dataset, mass: float, category: 
     plt.show()
 
     
-def significance_ratio_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, 
+def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='weight',
                                bins=20, size=(10, 9), path='plot', save=None):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
@@ -226,15 +232,15 @@ def significance_ratio_vs_mass(models_and_data: dict, category: int, signal: str
         ams[name] = []
         cut[name] = []
         
-        for mass in dataset.unique_signal_mass:
+        for mass, (m_low, m_up) in zip(dataset.unique_signal_mass, dataset.mass_intervals):
             sig = dataset.signal
-    
+            
             # select data
             s = sig[sig['mA'] == mass]
-            s = s[(s['dimuon_M'] >= mass - delta) & (s['dimuon_M'] < mass + delta)]
+            s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
-            b = b[(b['dimuon_M'] >= mass - delta) & (b['dimuon_M'] < mass + delta)]
+            b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
 
             # prepare data
             x = pd.concat([s[dataset.columns['feature']],
@@ -244,10 +250,10 @@ def significance_ratio_vs_mass(models_and_data: dict, category: int, signal: str
             x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
     
             # predict data
-            out, y_pred, w = _get_predictions_and_weights(model, x, y, bkg=b, bins=bins)
+            out, y_pred, w = _get_predictions_and_weights(model, x, y, sig=s, bkg=b, bins=bins, weight_column=weight_column)
             best_ams, best_cut = _get_best_ams_cut(*y_pred, *w, bins=bins)
             
-            max_ams = (s.shape[0] * w[0][0]) / np.sqrt(s.shape[0] * w[0][0])
+            max_ams = np.sum(w[0]) / np.sqrt(np.sum(w[0]))
             
             ams[name].append(best_ams / max_ams)
             cut[name].append(best_cut)
@@ -262,12 +268,12 @@ def significance_ratio_vs_mass(models_and_data: dict, category: int, signal: str
         
     axes[0].set_xlabel('Mass (GeV)')
     axes[0].set_ylabel('Significance / Max Significance')
-    axes[0].set_title(f'Category-{category}; #bins = {bins} - {signal}\nComparison Significance vs mA')
+    axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
     axes[0].legend(loc='best')
     
     axes[1].set_xlabel('Mass (GeV)')
     axes[1].set_ylabel('Best Cut')
-    axes[1].set_title(f'Category-{category}; #bins = {bins} - {signal}\nComparison Best-Cut vs mA')
+    axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA')
     axes[1].legend(loc='best')
     
     fig.tight_layout()
@@ -279,9 +285,8 @@ def significance_ratio_vs_mass(models_and_data: dict, category: int, signal: str
     plt.show()
     
 
-def cut(models_and_data, category: int, signal: str, delta=50, bins=20, 
-        size=(12, 10), legend='best', name='Model', path='plot', save=None, 
-        show=True, ax=None):
+def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='Model', 
+        path='plot', save=None, show=True, ax=None, weight_column='weight'):
     """Plots the value of the best cut as the mass (mA) varies"""
     if ax is None:
         fig = plt.figure(figsize=size)
@@ -290,20 +295,17 @@ def cut(models_and_data, category: int, signal: str, delta=50, bins=20,
     if isinstance(models_and_data, tuple):
         models_and_data = {'': models_and_data}
     
-    # cuts = {}
-    
     for key, (model, data) in models_and_data.items():
-        # cuts[key] = []
         cuts = []
         masses = np.sort(data.unique_signal_mass)
         
         # select both signal and background in interval (m-d, m+d)
-        for mass in masses:
+        for mass, (m_low, m_up) in zip(masses, data.mass_intervals):
             sig = data.signal[data.signal['mA'] == mass]
-            sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+            sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
 
             bkg = data.background
-            bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+            bkg = bkg[(bkg['dimuon_M'] >= m_low) & (bkg['dimuon_M'] < m_up)]
 
              # prepare data
             x = pd.concat([sig[data.columns['feature']],
@@ -313,10 +315,9 @@ def cut(models_and_data, category: int, signal: str, delta=50, bins=20,
             x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
     
             # predict data
-            out, y_pred, w = _get_predictions_and_weights(model, x, y, bkg, bins=bins)
+            out, y_pred, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins=bins, weight_column=weight_column)
             _, best_cut = _get_best_ams_cut(*y_pred, *w, bins=bins)
             
-            # cuts[key].append(best_cut)
             cuts.append(best_cut)
         
         # plot
@@ -328,7 +329,7 @@ def cut(models_and_data, category: int, signal: str, delta=50, bins=20,
     ax.legend(loc=str(legend))
     
     # title
-    str0 = f'Category-{category} [#bins = {bins}]'
+    str0 = f'{title} [#bins = {bins}]'
     ax.set_title(f'[{name}] Best Cut vs mA ({str0})')
     
     if isinstance(save, str):
@@ -339,19 +340,22 @@ def cut(models_and_data, category: int, signal: str, delta=50, bins=20,
         plt.show()
 
 
-def curves(model, dataset: Dataset, mass: int, category: int, signal: str, delta=50, 
+def curves(model, dataset: Dataset, mass: int, title='', delta=50, weight_column='weight',
            bins=20, size=(10, 9), legend='best', seed=utils.SEED, path='plot', save=None):
     """Plots the PR and ROC curves"""
+    if isinstance(delta, (int, float)):
+        delta = (delta, delta)
+
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
     fig.set_figheight(size[1])
     
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+    sig = sig[(sig['dimuon_M'] >= mass - delta[0]) & (sig['dimuon_M'] < mass + delta[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+    bkg = bkg[(bkg['dimuon_M'] >= mass - delta[0]) & (bkg['dimuon_M'] < mass + delta[1])]
     
     num_sig = sig.shape[0]
     
@@ -370,7 +374,8 @@ def curves(model, dataset: Dataset, mass: int, category: int, signal: str, delta
     y_bkg = np.squeeze(out[y == 0.0])
     
     # compute weights
-    w_bkg = bkg['weight'].values
+    w_bkg = bkg[weight_column].values
+    w_sig = sig[weight_column].values
     
     h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
     h_bkg = np.sum(h_bkg)
@@ -378,20 +383,20 @@ def curves(model, dataset: Dataset, mass: int, category: int, signal: str, delta
     h_sig, _ = np.histogram(y_sig, bins=bins)
     h_sig = np.sum(h_sig)
     
-    w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
+    w_sig = w_sig * (h_bkg / h_sig)
     w = np.concatenate([w_sig, w_bkg], axis=0)
     
-    str1 = f'@{(int(mass - delta), int(mass + delta))} dimuon_M (bkg)'
+    str1 = f'@{(int(mass - delta[0]), int(mass + delta[1]))} dimuon_M (bkg)'
     
     # PR-curve
     PrecisionRecallDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[0],
-                                            name=f'pNN @ {int(mass)}mA (signal {signal}), {str1}')
-    axes[0].set_title(f'[pNN] PR Curve @ {int(mass)}mA (category {category})')
+                                            name=f'pNN @ {int(mass)}mA, {str1}')
+    axes[0].set_title(f'[pNN] PR Curve @ {int(mass)}mA ({title})')
     
     # ROC curve
     RocCurveDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[1],
-                                     name=f'pNN @ {int(mass)}mA (signal {signal}), {str1}')
-    axes[1].set_title(f'[pNN] ROC Curve @ {int(mass)}mA (category {category})')
+                                     name=f'pNN @ {int(mass)}mA, {str1}')
+    axes[1].set_title(f'[pNN] ROC Curve @ {int(mass)}mA ({title})')
     
     fig.tight_layout()
     
@@ -408,7 +413,6 @@ def roc_auc(true, pred, weights, cut: float, eps=1e-4):
     
     # find significance along the curve
     idx = (np.abs(cut - np.array(t))).argmin()
-    # idx = (np.abs(cut[:, np.newaxis] - np.array(t))).argmin(axis=-1)
 
     return fpr, tpr, auc, fpr[idx], tpr[idx]
 
@@ -423,35 +427,39 @@ def pr_auc(true, pred, weights, cut: float, eps=1e-4):
     return precision, recall, auc, precision[idx], recall[idx]
 
 
-def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, category: int, delta=50.0, bins=20,
-                size=(12, 10), digits=3, path='plot', save=None, name='Model', **kwargs):
+def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20,
+                size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):
     
-    def get_predictions_and_weights(model, x, y, bkg):
-        out = model.predict(x=x, batch_size=1024, verbose=0)
-        out = np.asarray(out)
+    # def get_predictions_and_weights(model, x, y, sig, bkg):
+    #     out = model.predict(x=x, batch_size=1024, verbose=0)
+    #     out = np.asarray(out)
 
-        y_sig = np.squeeze(out[y == 1.0])
-        y_bkg = np.squeeze(out[y == 0.0])
+    #     y_sig = np.squeeze(out[y == 1.0])
+    #     y_bkg = np.squeeze(out[y == 0.0])
 
-        # compute weights
-        w_bkg = bkg['weight'].values
+    #     # compute weights
+    #     w_bkg = bkg[weight_column].values
+    #     w_sig = sig[weight_column].values
 
-        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-        h_bkg = np.sum(h_bkg)
+    #     h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+    #     h_bkg = np.sum(h_bkg)
 
-        h_sig, _ = np.histogram(y_sig, bins=bins)
-        h_sig = np.sum(h_sig)
+    #     h_sig, _ = np.histogram(y_sig, bins=bins)
+    #     h_sig = np.sum(h_sig)
 
-        w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
-        w = np.concatenate([w_sig, w_bkg], axis=0)
+    #     w_sig = w_sig * (h_bkg / h_sig)
+    #     w = np.concatenate([w_sig, w_bkg], axis=0)
         
-        return out, w
+    #     return out, w
     
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
+
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
 
     # prepare data
     x = pd.concat([sig[dataset.columns['feature']],
@@ -462,11 +470,12 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, category: 
     
     # predict data
     plt.figure(figsize=size)
-    plt.title(f'[{name}] ROC @ {int(mass)}mA [category-{int(category)}]')
+    plt.title(f'[{name}] ROC @ {int(mass)}mA [{title}]')
     
     for k, (model, cut) in models_and_cuts.items():
-        out, w = get_predictions_and_weights(model, x, y, bkg)
-        
+        out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
+        w = np.concatenate(w, axis=0)
+
         fpr, tpr, auc, cut_fpr, cut_tpr = roc_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
     
         plt.plot(fpr, tpr, label=f'AUC ({k}) {np.round(auc, digits)}')
@@ -484,35 +493,16 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, category: 
     plt.show()
 
     
-def compare_pr(dataset: Dataset, models_and_cuts: dict, category: int, mass: float, delta=50.0, bins=20, 
-               size=(12, 10), digits=3, path='plot', save=None, name='Model', **kwargs):
+def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, 
+               size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):    
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
 
-    def get_predictions_and_weights(model, x, y, bkg):
-        out = model.predict(x=x, batch_size=1024, verbose=0)
-        out = np.asarray(out)
-
-        y_sig = np.squeeze(out[y == 1.0])
-        y_bkg = np.squeeze(out[y == 0.0])
-
-        # compute weights
-        w_bkg = bkg['weight'].values
-
-        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-        h_bkg = np.sum(h_bkg)
-
-        h_sig, _ = np.histogram(y_sig, bins=bins)
-        h_sig = np.sum(h_sig)
-
-        w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
-        w = np.concatenate([w_sig, w_bkg], axis=0)
-        
-        return out, w
-    
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
 
     # prepare data
     x = pd.concat([sig[dataset.columns['feature']],
@@ -523,10 +513,11 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, category: int, mass: flo
     
     # predict data
     plt.figure(figsize=size)
-    plt.title(f'[{name}] PR Curve @ {int(mass)}mA [category-{int(category)}]')
+    plt.title(f'[{name}] PR Curve @ {int(mass)}mA [{title}]')
     
     for k, (model, cut) in models_and_cuts.items():
-        out, w = get_predictions_and_weights(model, x, y, bkg)
+        out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
+        w = np.concatenate(w, axis=0)
         
         precision, recall, auc, cut_prec, cut_rec = pr_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
         
@@ -545,10 +536,118 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, category: int, mass: flo
     plt.show()
 
 
-def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float, cuts: list, category: int, case: int, 
-                   delta=50.0, size=(12, 10), legend='best', bins=25, share_y=True,
-                   path='plot', weight=False, seed=utils.SEED, save=None, min_limit=None, max_limit=None):
-    assert len(models) == 2, 'only two models can be compared'
+def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, 
+               size=(12, 10), legend='best', bins=25, weight_column='weight', path='plot', 
+               seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):
+    def predict(model, x, cut):
+        out = model.predict(x=x, batch_size=1024, verbose=0)
+        out = np.asarray(out)
+    
+        sig_mask = np.squeeze(out >= cut) & (y == 1.0)
+        bkg_mask = np.squeeze(out < cut) & (y == 0.0)
+
+        y_sig = np.squeeze(out[sig_mask])
+        y_bkg = np.squeeze(out[bkg_mask])
+
+        w_bkg = ds[bkg_mask][weight_column].values
+        w_sig = ds[sig_mask][weight_column].values
+
+        # compute signal weights
+        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+        h_bkg = np.sum(h_bkg)
+
+        h_sig, _ = np.histogram(y_sig, bins=bins)
+        h_sig = np.sum(h_sig)
+
+        w_sig = w_sig * (h_bkg / h_sig)
+        names = dataset.names_df.loc[ds[bkg_mask].index]
+        
+        return out, (sig_mask, bkg_mask), (y_sig, y_bkg), (w_sig, w_bkg), names 
+    
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
+
+    sig = dataset.signal[dataset.signal['mA'] == mass]
+    bkg = dataset.background
+    
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    
+    w_b = bkg[weight_column].values
+    w_s = sig[weight_column].values
+    w_s = w_s * (np.sum(w_s) / np.sum(w_b))
+
+    names = np.squeeze(bkg['name'])
+
+    for col in variables:
+        fig = plt.figure(figsize=size)
+        ax = fig.gca()
+
+        s = sig[col]
+        b = bkg[col]
+        
+        df = pd.DataFrame({col: b, 'Bkg': names, 'weight': w_b})
+
+        if ('met' in col) or ('pt' in col):
+            n_bins = 50
+            max_limit = 500.0
+
+        elif col == 'ljet_n':
+            n_bins = 25
+            max_limit = 11.0
+
+        elif col == 'dimuon_M':
+            n_bins = 25
+            # max_limit = 500.0
+            # min_limit = 300
+        else:
+            n_bins = 25
+            max_limit = None
+
+        range_min = min(b.min(), s.min())
+        range_max = max(b.max(), s.max())
+
+        if isinstance(min_limit, (int, float)):
+            range_min = max(range_min, min_limit)
+
+        if isinstance(max_limit, (int, float)):
+            range_max = min(range_max, max_limit)
+
+        # plot histograms
+        sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+                     weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
+
+        ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+                edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
+                weights=w_s)
+
+        leg = ax.get_legend()
+        ax.legend(loc='upper left')
+        ax.add_artist(leg)
+
+        ax.set_title(f'mA @ {int(mass)} - dimuon_mass in {interval}')
+        ax.set_xlabel(col)
+        ax.set_ylabel('Weighted Count')
+        
+        fig.tight_layout()
+    
+    if isinstance(save, str):
+        path = utils.makedir(path)
+        plt.savefig(os.path.join(path, f'{save}_{col}_{int(mass)}_mA.png'), bbox_inches='tight')
+    
+    plt.show()
+
+
+def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float, cuts: list, 
+                   interval=50.0, size=(12, 10), legend='best', bins=25, share_y=True, weight_column='weight',
+                   path='plot', seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):
+    if not isinstance(models, list):
+        models = [models]
+
+    if not isinstance(cuts, list):
+        cuts = [cuts]
+
+    assert len(models) <= 2, 'At most two models can be compared!'
 
     def predict(model, x, cut):
         out = model.predict(x=x, batch_size=1024, verbose=0)
@@ -560,8 +659,8 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
         y_sig = np.squeeze(out[sig_mask])
         y_bkg = np.squeeze(out[bkg_mask])
 
-        w_bkg = ds[bkg_mask]['weight'].values
-        w_sig = np.ones_like(y_sig)
+        w_bkg = ds[bkg_mask][weight_column].values
+        w_sig = ds[sig_mask][weight_column].values
 
         # compute signal weights
         h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
@@ -570,45 +669,47 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
         h_sig, _ = np.histogram(y_sig, bins=bins)
         h_sig = np.sum(h_sig)
 
-        w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
+        w_sig = w_sig * (h_bkg / h_sig)
         names = dataset.names_df.loc[ds[bkg_mask].index]
         
         return out, (sig_mask, bkg_mask), (y_sig, y_bkg), (w_sig, w_bkg), names 
     
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
+
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    # case
-    if case == 2:
-        sig = sig[(sig['dimuon_M'] >= mass - delta) & (sig['dimuon_M'] < mass + delta)]
-        bkg = bkg[(bkg['dimuon_M'] >= mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
     num_sig = sig.shape[0]
     
     # prepare data
-    x = pd.concat([sig[dataset.columns['feature']],
-                   bkg[dataset.columns['feature']]], axis=0).values
+    x = ds[dataset.columns['feature']].values
 
     y = np.reshape(pd.concat([sig['type'], bkg['type']], axis=0).values, newshape=[-1])
     x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
     
     # predict data
-    out1, masks1, y1, w1, names1 = predict(models[0], x, cuts[0])
-    out2, masks2, y2, w2, names2 = predict(models[1], x, cuts[1])
-    
-    out = [out1, out2]
-    mask = [masks1, masks2]
-    labels = [y1, y2]
-    w = [w1, w2]
-    names = [names1, names2]
-    
+    preds = [predict(model, x, cut) for model, cut in zip(models, cuts)]
+
+    out = [p[0] for p in preds]
+    mask = [p[1] for p in preds]
+    labels = [p[2] for p in preds]
+    w = [p[3] for p in preds]
+    names = [p[4] for p in preds]
+
     for col in variables:
-        fig, axes = plt.subplots(nrows=1, ncols=2, sharey=bool(share_y))
+        fig, axes = plt.subplots(nrows=1, ncols=len(models), sharey=bool(share_y))
         
-        fig.set_figwidth(size[0] * 2)
+        fig.set_figwidth(size[0] * len(models))
         fig.set_figheight(size[1])
         
+        if len(models) == 1:
+            axes = [axes]
+
         ax = fig.gca()
         
         for i, ax in enumerate(axes):
@@ -627,8 +728,8 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
 
             elif col == 'dimuon_M':
                 n_bins = 25
-                max_limit = 500.0
-                min_limit = 300
+                # max_limit = 500.0
+                # min_limit = 300
             else:
                 n_bins = 25
                 max_limit = None
@@ -644,19 +745,19 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
 
             # plot histograms
             sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
-                         weights='weight', ax=ax, binrange=(range_min, range_max),
-                         palette={'DY': 'green', 'TTbar': 'red', 'ST': 'blue', 'diboson': 'yellow'})
+                         weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
 
-            ax.hist(s, bins=bins, alpha=0.7, label='signal', color='purple', edgecolor='purple', 
-                    linewidth=2, hatch='//', histtype='step',
-                    range=(range_min, range_max), weights=w[i][0])
+            ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+                    edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
+                    weights=w[i][0])
 
             leg = ax.get_legend()
             ax.legend(loc='upper left')
             ax.add_artist(leg)
 
+            ax.set_title(f'mA @ {int(mass)} - dimuon_mass in {interval}')
             ax.set_xlabel(col)
-            ax.set_ylabel('Count')
+            ax.set_ylabel('Weighted Count')
             
             fig.tight_layout()
         
@@ -667,9 +768,136 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
         plt.show()
 
 
-def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, bins=20, 
-                  size=(12, 10), path='plot', save=None, title='pNN', auc=False, curve='roc', 
-                  legend='best', **kwargs):
+def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, size=(12, 10), 
+              legend='best', bins=25, share_y=True, weight_column='weight', path='plot', seed=utils.SEED, 
+              save=None, min_limit=None, max_limit=None, palette=PALETTE):
+
+    def predict(model, x, cut):
+        out = model.predict(x=x, batch_size=1024, verbose=0)
+        out = np.asarray(out)
+    
+        sig_mask = np.squeeze(out >= cut) & (y == 1.0)
+        bkg_mask = np.squeeze(out < cut) & (y == 0.0)
+
+        y_sig = np.squeeze(out[sig_mask])
+        y_bkg = np.squeeze(out[bkg_mask])
+
+        w_bkg = ds[bkg_mask][weight_column].values
+        w_sig = ds[sig_mask][weight_column].values
+
+        # compute signal weights
+        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+        h_bkg = np.sum(h_bkg)
+
+        h_sig, _ = np.histogram(y_sig, bins=bins)
+        h_sig = np.sum(h_sig)
+
+        w_sig = w_sig * (h_bkg / h_sig)
+        names = dataset.names_df.loc[ds[bkg_mask].index]
+        
+        return out, (sig_mask, bkg_mask), (y_sig, y_bkg), (w_sig, w_bkg), names 
+    
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
+
+    sig = dataset.signal[dataset.signal['mA'] == mass]
+    bkg = dataset.background
+    
+    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    
+    ds = pd.concat([sig, bkg], axis=0)
+    norm_w = np.sum(bkg[weight_column]) / np.sum(sig[weight_column])
+    
+    # prepare data
+    x = ds[dataset.columns['feature']].values
+
+    y = np.reshape(pd.concat([sig['type'], bkg['type']], axis=0).values, newshape=[-1])
+    x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
+    
+    # predict data
+    _, (s_mask, b_mask), _, (w_s, w_b), names = predict(model, x, cut)
+
+    for col in variables:
+        fig, axes = plt.subplots(nrows=1, ncols=2, sharey=bool(share_y))
+        
+        fig.set_figwidth(size[0] * 2)
+        fig.set_figheight(size[1])
+        
+        for i, ax in enumerate(axes):
+            if i == 0:
+                # var-priori: don't apply classifier
+                s = sig[col]
+                b = bkg[col]
+                n = np.squeeze(bkg['name'])
+                
+                wb = bkg[weight_column]
+                ws = sig[weight_column] * norm_w
+            else:
+                # var-posteriori: apply classifier
+                s = ds[s_mask][col]
+                b = ds[b_mask][col]
+                n = np.squeeze(names)
+                
+                wb = w_b
+                ws = w_s
+
+            df  = pd.DataFrame({col: b, 'Bkg': n, 'weight': wb})
+
+            if ('met' in col) or ('pt' in col):
+                n_bins = 50
+                max_limit = 500.0
+
+            elif col == 'ljet_n':
+                n_bins = 25
+                max_limit = 11.0
+
+            elif col == 'dimuon_M':
+                n_bins = 25
+                # max_limit = 500.0
+                # min_limit = 300
+            else:
+                n_bins = 25
+                max_limit = None
+
+            range_min = min(b.min(), s.min())
+            range_max = max(b.max(), s.max())
+
+            if isinstance(min_limit, (int, float)):
+                range_min = max(range_min, min_limit)
+
+            if isinstance(max_limit, (int, float)):
+                range_max = min(range_max, max_limit)
+
+            # plot histograms
+            sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+                         weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
+
+            ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+                    edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
+                    weights=ws)
+
+            leg = ax.get_legend()
+            ax.legend(loc='upper left')
+            ax.add_artist(leg)
+
+            title = f'{"priori" if i == 0 else "posteriori@" + str(round(cut, 3))}' 
+            ax.set_title(f'[{title}] mA @ {int(mass)} - dimuon_mass in {interval}')
+            
+            ax.set_xlabel(col)
+            ax.set_ylabel('Weighted Count')
+            
+            fig.tight_layout()
+        
+        if isinstance(save, str):
+            path = utils.makedir(path)
+            plt.savefig(os.path.join(path, f'{save}_{col}_{int(mass)}_mA.png'), bbox_inches='tight')
+        
+        plt.show()
+
+
+def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', save=None, title='pNN', 
+                  auc=False, curve='roc', legend='best', weight_column='weight', **kwargs):
     is_roc = curve.lower() == 'roc'
     
     if isinstance(models_and_data, tuple):
@@ -684,15 +912,15 @@ def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, b
         curve = {name: dict(precision=[], recall=[]) for name in models_and_data.keys()}
     
     for name, (model, dataset) in models_and_data.items():
-        for mass in dataset.unique_signal_mass:
+        for mass, (m_low, m_up) in zip(dataset.unique_signal_mass, dataset.mass_intervals):
             sig = dataset.signal
     
             # select data
             s = sig[sig['mA'] == mass]
-            s = s[(s['dimuon_M'] >= mass - delta) & (s['dimuon_M'] < mass + delta)]
+            s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
-            b = b[(b['dimuon_M'] >= mass - delta) & (b['dimuon_M'] < mass + delta)]
+            b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
 
             # prepare data
             x = pd.concat([s[dataset.columns['feature']],
@@ -702,12 +930,12 @@ def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, b
             x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
 
             # compute curve @ cut
-            out, y_pred, w = _get_predictions_and_weights(model, x, y, bkg=b, bins=bins)
+            out, y_pred, w = _get_predictions_and_weights(model, x, y, sig=s, bkg=b, bins=bins, weight_column=weight_column)
             _, cut = _get_best_ams_cut(*y_pred, *w, bins=bins)
             w = np.concatenate(w, axis=0)
 
             if is_roc:
-                _, _, auc_, cut_fpr, cut_tpr = cms.plot.roc_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
+                _, _, auc_, cut_fpr, cut_tpr = roc_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
 
                 if auc:
                     curve[name].append(auc_)
@@ -715,7 +943,7 @@ def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, b
                     curve[name]['FPR'].append(cut_fpr)
                     curve[name]['TPR'].append(cut_tpr)
             else:
-                _, _, auc_, cut_prec, cut_rec = cms.plot.pr_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
+                _, _, auc_, cut_prec, cut_rec = pr_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
 
                 if auc:
                     curve[name].append(auc_)
@@ -724,7 +952,7 @@ def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, b
                     curve[name]['recall'].append(cut_rec)
     # plot
     plt.figure(figsize=size)
-    plt.title(f'[{title}] {"ROC" if is_roc else "PR"} Curve @ Best-Cut vs mA [category-{int(category)}]')
+    plt.title(f'[{title}] {"ROC" if is_roc else "PR"} Curve @ Best-Cut vs mA')
     
     ax = plt.gca()
     
@@ -759,25 +987,27 @@ def curve_vs_mass(models_and_data: dict, category: int, signal: str, delta=50, b
     plt.show()
 
     
-def _get_predictions_and_weights(model, x, y, bkg, bins):
-        out = model.predict(x=x, batch_size=1024, verbose=0)
-        out = np.asarray(out)
+def _get_predictions_and_weights(model, x, y, sig: pd.DataFrame, bkg: pd.DataFrame, bins, weight_column='weight'):
+    out = model.predict(x=x, batch_size=1024, verbose=0)
+    out = np.asarray(out)
 
-        y_sig = np.squeeze(out[y == 1.0])
-        y_bkg = np.squeeze(out[y == 0.0])
+    y_sig = np.squeeze(out[y == 1.0])
+    y_bkg = np.squeeze(out[y == 0.0])
 
-        # compute weights
-        w_bkg = bkg['weight'].values
+    # compute weights
+    w_bkg = bkg[weight_column].values
+    w_sig = sig[weight_column].values
 
-        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-        h_bkg = np.sum(h_bkg)
+    h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+    h_bkg = np.sum(h_bkg)
 
-        h_sig, _ = np.histogram(y_sig, bins=bins)
-        h_sig = np.sum(h_sig)
+    h_sig, _ = np.histogram(y_sig, bins=bins)
+    h_sig = np.sum(h_sig)
 
-        w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
-        
-        return out, (y_sig, y_bkg), (w_sig, w_bkg)
+    # w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
+    w_sig = w_sig * (h_bkg / h_sig)
+    
+    return out, (y_sig, y_bkg), (w_sig, w_bkg)
 
     
 def _get_best_ams_cut(y_sig, y_bkg, w_sig, w_bkg, bins):

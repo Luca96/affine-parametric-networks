@@ -255,6 +255,7 @@ def get_compiled_model(cls, data, units: list = None, save: str = None, curve='R
     model.compile(lr=lr, **opt, **compile_args,
                   metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
                            Precision(name='precision'), Recall(name='recall'),
+                           SignificanceRatio(name='ams'),
                            # Significance2(name='sig2'), 
                            # Significance3(name='sig3')
                            ])
@@ -391,129 +392,48 @@ def project_manifold(model, x, y, amount=100_000, size=(12, 10), name='pNN', pal
     return df
 
 
-# class Significance(tf.keras.metrics.Metric):
-#     def __init__(self, bins=20, eps=1e-7, **kwargs):
-#         super().__init__(**kwargs)
-        
-#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
-#         self.ams = self.add_weight(name='ams', initializer='zeros')
-    
-#     def update_state(self, true, pred):
-#         sig_mask = true == 1.0
-#         bkg_mask = true == 0.0
-        
-#         ams = []
-        
-#         for i in range(self.cuts.shape[0] - 1):
-#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
-            
-#             # select signals and bkg (as true positives of both classes)
-#             s = tf.shape(pred[sig_mask & cut_mask])[0]
-#             s = tf.cast(s, dtype=tf.float32)
+class SignificanceRatio(tf.keras.metrics.Metric):
+    def __init__(self, bins=20, **kwargs):
+        super().__init__(**kwargs)
 
-#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
-#             b = tf.cast(b, dtype=tf.float32)
-            
-#             # compute approximate median significance (AMS)
-#             ams.append(s / tf.sqrt(s + b))
-        
-#         self.ams.assign(tf.reduce_max(ams))
-        
-#     def result(self):
-#         return self.ams.value()
-    
-#     def reset_states(self):
-#         self.ams.assign(0.0)
+        self.bins = int(bins)
+        self.value_range = (0.0, 1.0)
 
+        # init signal and background accumulators
+        self.s = tf.Variable(initial_value=tf.zeros(shape=(self.bins,), dtype=tf.int32), trainable=False)
+        self.b = tf.Variable(initial_value=tf.zeros(shape=(self.bins,), dtype=tf.int32), trainable=False)
 
-# class Significance2(tf.keras.metrics.Metric):
-#     def __init__(self, bins=20, eps=1e-7, **kwargs):
-#         super().__init__(**kwargs)
-    
-#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
-#         self.init_shape = (tf.shape(self.cuts)[0] - 1,)
+    # @tf.function
+    def update_state(self, true, pred, *args, **kwargs):
+        # sig_mask = tf.squeeze(true) == 1.0
+        sig_mask = tf.reshape(true, shape=[-1]) == 1.0
+        bkg_mask = tf.logical_not(sig_mask)
 
-#         self.sig_count = self.add_weight(name='s', shape=self.init_shape, initializer='zeros',
-#                                          aggregation=tf.VariableAggregation.NONE)
-#         self.bkg_count = self.add_weight(name='b', shape=self.init_shape, initializer='zeros',
-#                                          aggregation=tf.VariableAggregation.NONE)
-    
-#     def update_state(self, true: tf.Tensor, pred: tf.Tensor):
-#         sig_mask = tf.reshape(true == 1.0, shape=[-1])
-#         bkg_mask = tf.logical_not(sig_mask)
-        
-#         sig = []
-#         bkg = []
-        
-#         for i in range(self.cuts.shape[0] - 1):
-#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
-#             cut_mask = tf.reshape(cut_mask, shape=[-1])
+        y = tf.squeeze(pred)
+        y_sig = tf.boolean_mask(y, mask=sig_mask)
+        y_bkg = tf.boolean_mask(y, mask=bkg_mask)
 
-#             # select signals and bkg (as true positives of both classes)
-#             s = tf.shape(pred[sig_mask & cut_mask])[0]
-#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
-            
-#             sig.append(s)
-#             bkg.append(b)
+        s_hist = tf.histogram_fixed_width(y_sig, self.value_range, nbins=self.bins)
+        b_hist = tf.histogram_fixed_width(y_bkg, self.value_range, nbins=self.bins)
 
-#         self.sig_count.assign_add(tf.cast(sig, dtype=tf.float32))
-#         self.bkg_count.assign_add(tf.cast(bkg, dtype=tf.float32))
-    
-#     # @tf.function
-#     def result(self):
-#         s = self.sig_count.value()
-#         b = self.bkg_count.value()
+        self.s.assign_add(s_hist)
+        self.b.assign_add(b_hist)
 
-#         # compute approximate median significance (AMS)
-#         ams = s / tf.square(s + b) 
-#         return tf.reduce_max(ams)
-    
-#     def reset_states(self):
-#         self.sig_count.assign(tf.zeros(shape=self.init_shape))
-#         self.bkg_count.assign(tf.zeros(shape=self.init_shape))
+    def result(self):
+        ams = []
 
+        for i in range(self.bins):
+            s_i = tf.cast(tf.reduce_sum(self.s[i:]), dtype=tf.float32)
+            b_i = tf.cast(tf.reduce_sum(self.b[i:]), dtype=tf.float32)
 
-# class Significance3(tf.keras.metrics.Metric):
-#     def __init__(self, bins=20, eps=1e-7, **kwargs):
-#         super().__init__(**kwargs)
-        
-#         self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
-#         self.init_shape = (tf.shape(self.cuts)[0] - 1,)
+            ams.append(s_i / tf.math.sqrt(s_i + b_i))
 
-#         self.sig_count = self.add_weight(name='s', shape=self.init_shape, initializer='zeros',
-#                                          aggregation=tf.VariableAggregation.NONE)
-#         self.bkg_count = self.add_weight(name='b', shape=self.init_shape, initializer='zeros',
-#                                          aggregation=tf.VariableAggregation.NONE)
-    
-#     def update_state(self, true: tf.Tensor, pred: tf.Tensor):
-#         sig_mask = tf.reshape(true == 1.0, shape=[-1])
-#         bkg_mask = tf.logical_not(sig_mask)
-        
-#         sig = []
-#         bkg = []
-        
-#         for i in range(self.cuts.shape[0] - 1):
-#             cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
-#             cut_mask = tf.reshape(cut_mask, shape=[-1])
+        s = tf.cast(tf.reduce_sum(self.s), dtype=tf.float32)
+        max_ams = s / tf.math.sqrt(s)
 
-#             # select signals and bkg (as true positives of both classes)
-#             s = tf.shape(pred[sig_mask & cut_mask])[0]
-#             b = tf.shape(pred[bkg_mask & cut_mask])[0]
-            
-#             sig.append(s)
-#             bkg.append(b)
+        # return ratio
+        return tf.reduce_max(ams) / max_ams
 
-#         self.sig_count.assign_add(tf.cast(sig, dtype=tf.float32))
-#         self.bkg_count.assign_add(tf.cast(bkg, dtype=tf.float32))
-    
-#     # @tf.function
-#     def result(self):
-#         s = self.sig_count.value()
-#         b = self.bkg_count.value()
-
-#         # compute approximate median significance (AMS)
-#         return s + b
-    
-#     def reset_states(self):
-#         self.sig_count.assign(tf.zeros(shape=self.init_shape))
-#         self.bkg_count.assign(tf.zeros(shape=self.init_shape))
+    def reset_states(self):
+        self.s.assign(tf.zeros(shape=(self.bins,), dtype=tf.int32))
+        self.b.assign(tf.zeros(shape=(self.bins,), dtype=tf.int32))

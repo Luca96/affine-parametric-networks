@@ -23,7 +23,7 @@ PALETTE = {'DY': 'green', 'TTbar': 'red', 'ST': 'blue', 'diboson': 'yellow',
 
 
 def significance(model, dataset: Dataset, mass: int, title='', interval=50, digits=4,
-                 bins=20, size=(12, 10), legend='best', name='Model', palette=PALETTE,
+                 bins=20, size=(12, 10), legend='best', name='Model', palette=PALETTE, signal_in_interval=False,
                  path='plot', save=None, show=True, ax=None, weight_column='weight', ratio=False):
     """Plots the output distribution of the model, along it's weighted significance"""
     if ax is None:
@@ -35,7 +35,9 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
 
     # select both signal and background in interval (m-d, m+d)
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
 
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -86,7 +88,8 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
 
     cuts = np.linspace(0.0, 1.0, num=bins)
     ams = []
-    ams_max = (np.sum(sig_mask) * w_sig[0]) / np.sqrt(np.sum(sig_mask) * w_sig[0])
+    # ams_max = (np.sum(sig_mask) * w_sig[0]) / np.sqrt(np.sum(sig_mask) * w_sig[0])
+    ams_max = np.sum(w_sig) / np.sqrt(np.sum(w_sig))
     
     bx = ax.twinx()
     
@@ -141,14 +144,16 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     return np.max(ams), cuts[k]
 
 
-def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight'):
+def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight', signal_in_interval=False):
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
     
     for mass, interval in zip(dataset.unique_signal_mass, dataset.mass_intervals):
         # select both signal and background in interval (m-d, m+d)
         sig = dataset.signal[dataset.signal['mA'] == mass]
-        # sig = sig[(sig['dimuon_M'] > interval[0]) & (sig['dimuon_M'] < interval[1])]
+        
+        if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
 
         bkg = dataset.background
         bkg = bkg[(bkg['dimuon_M'] > interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -216,7 +221,7 @@ def compare_significance(models: list, dataset: Dataset, mass: float, *args, pat
 
     
 def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='weight',
-                               bins=20, size=(10, 9), path='plot', save=None):
+                               bins=20, size=(10, 9), path='plot', save=None, signal_in_interval=False):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
@@ -237,7 +242,9 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
             
             # select data
             s = sig[sig['mA'] == mass]
-            # s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+
+            if signal_in_interval:
+                s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
             b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
@@ -286,7 +293,7 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
     
 
 def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='Model', 
-        path='plot', save=None, show=True, ax=None, weight_column='weight'):
+        path='plot', save=None, show=True, ax=None, weight_column='weight', signal_in_interval=False):
     """Plots the value of the best cut as the mass (mA) varies"""
     if ax is None:
         fig = plt.figure(figsize=size)
@@ -302,7 +309,9 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
         # select both signal and background in interval (m-d, m+d)
         for mass, (m_low, m_up) in zip(masses, data.mass_intervals):
             sig = data.signal[data.signal['mA'] == mass]
-            # sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
+            
+            if signal_in_interval:
+                sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
 
             bkg = data.background
             bkg = bkg[(bkg['dimuon_M'] >= m_low) & (bkg['dimuon_M'] < m_up)]
@@ -341,7 +350,7 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
 
 
 def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_column='weight',
-           bins=20, size=(10, 9), legend='best', seed=utils.SEED, path='plot', save=None):
+           bins=20, size=(10, 9), legend='best', seed=utils.SEED, path='plot', save=None, signal_in_interval=False):
     """Plots the PR and ROC curves"""
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
@@ -352,7 +361,9 @@ def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_col
     fig.set_figheight(size[1])
     
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -427,14 +438,16 @@ def pr_auc(true, pred, weights, cut: float, eps=1e-4):
     return precision, recall, auc, precision[idx], recall[idx]
 
 
-def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20,
+def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, signal_in_interval=False,
                 size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):
     
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
 
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -471,13 +484,15 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
     plt.show()
 
     
-def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, 
+def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, signal_in_interval=False,
                size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):    
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
 
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -515,7 +530,7 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
 
 
 def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, 
-               size=(12, 10), legend='best', bins=25, weight_column='weight', path='plot', 
+               size=(12, 10), legend='best', bins=25, weight_column='weight', path='plot', signal_in_interval=False,
                seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):
     def predict(model, x, cut):
         out = model.predict(x=x, batch_size=1024, verbose=0)
@@ -548,7 +563,9 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     w_b = bkg[weight_column].values
@@ -616,7 +633,7 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
     plt.show()
 
 
-def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float, cuts: list, 
+def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float, cuts: list, signal_in_interval=False,
                    interval=50.0, size=(12, 10), legend='best', bins=25, share_y=True, weight_column='weight',
                    path='plot', seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):
     if not isinstance(models, list):
@@ -658,7 +675,9 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
@@ -748,7 +767,7 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
 
 def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, size=(12, 10), 
               legend='best', bins=25, share_y=True, weight_column='weight', path='plot', seed=utils.SEED, 
-              save=None, min_limit=None, max_limit=None, palette=PALETTE):
+              save=None, min_limit=None, max_limit=None, palette=PALETTE, signal_in_interval=False):
     """Variables at priori (before applying NN) vs poteriori (after applying NN)"""
     def predict(model, x, cut):
         out = model.predict(x=x, batch_size=1024, verbose=0)
@@ -781,7 +800,9 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    if signal_in_interval:
+        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
@@ -875,7 +896,7 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
 
 
 def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', save=None, title='pNN', 
-                  auc=False, curve='roc', legend='best', weight_column='weight', **kwargs):
+                  auc=False, curve='roc', legend='best', weight_column='weight' signal_in_interval=False, **kwargs):
     is_roc = curve.lower() == 'roc'
     
     if isinstance(models_and_data, tuple):
@@ -895,7 +916,9 @@ def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', sa
     
             # select data
             s = sig[sig['mA'] == mass]
-            # s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+
+            if signal_in_interval:
+                s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
             b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]

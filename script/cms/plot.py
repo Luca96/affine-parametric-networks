@@ -35,7 +35,7 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
 
     # select both signal and background in interval (m-d, m+d)
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
 
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -148,7 +148,7 @@ def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weigh
     for mass, interval in zip(dataset.unique_signal_mass, dataset.mass_intervals):
         # select both signal and background in interval (m-d, m+d)
         sig = dataset.signal[dataset.signal['mA'] == mass]
-        sig = sig[(sig['dimuon_M'] > interval[0]) & (sig['dimuon_M'] < interval[1])]
+        # sig = sig[(sig['dimuon_M'] > interval[0]) & (sig['dimuon_M'] < interval[1])]
 
         bkg = dataset.background
         bkg = bkg[(bkg['dimuon_M'] > interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -237,7 +237,7 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
             
             # select data
             s = sig[sig['mA'] == mass]
-            s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+            # s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
             b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
@@ -302,7 +302,7 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
         # select both signal and background in interval (m-d, m+d)
         for mass, (m_low, m_up) in zip(masses, data.mass_intervals):
             sig = data.signal[data.signal['mA'] == mass]
-            sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
+            # sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
 
             bkg = data.background
             bkg = bkg[(bkg['dimuon_M'] >= m_low) & (bkg['dimuon_M'] < m_up)]
@@ -340,11 +340,11 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
         plt.show()
 
 
-def curves(model, dataset: Dataset, mass: int, title='', delta=50, weight_column='weight',
+def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_column='weight',
            bins=20, size=(10, 9), legend='best', seed=utils.SEED, path='plot', save=None):
     """Plots the PR and ROC curves"""
-    if isinstance(delta, (int, float)):
-        delta = (delta, delta)
+    if isinstance(interval, (int, float)):
+        interval = (mass - interval, mass + interval)
 
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
@@ -352,10 +352,10 @@ def curves(model, dataset: Dataset, mass: int, title='', delta=50, weight_column
     fig.set_figheight(size[1])
     
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= mass - delta[0]) & (sig['dimuon_M'] < mass + delta[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= mass - delta[0]) & (bkg['dimuon_M'] < mass + delta[1])]
+    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     num_sig = sig.shape[0]
     
@@ -386,7 +386,7 @@ def curves(model, dataset: Dataset, mass: int, title='', delta=50, weight_column
     w_sig = w_sig * (h_bkg / h_sig)
     w = np.concatenate([w_sig, w_bkg], axis=0)
     
-    str1 = f'@{(int(mass - delta[0]), int(mass + delta[1]))} dimuon_M (bkg)'
+    str1 = f'@{interval} dimuon_M (bkg)'
     
     # PR-curve
     PrecisionRecallDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[0],
@@ -430,33 +430,11 @@ def pr_auc(true, pred, weights, cut: float, eps=1e-4):
 def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20,
                 size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):
     
-    # def get_predictions_and_weights(model, x, y, sig, bkg):
-    #     out = model.predict(x=x, batch_size=1024, verbose=0)
-    #     out = np.asarray(out)
-
-    #     y_sig = np.squeeze(out[y == 1.0])
-    #     y_bkg = np.squeeze(out[y == 0.0])
-
-    #     # compute weights
-    #     w_bkg = bkg[weight_column].values
-    #     w_sig = sig[weight_column].values
-
-    #     h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-    #     h_bkg = np.sum(h_bkg)
-
-    #     h_sig, _ = np.histogram(y_sig, bins=bins)
-    #     h_sig = np.sum(h_sig)
-
-    #     w_sig = w_sig * (h_bkg / h_sig)
-    #     w = np.concatenate([w_sig, w_bkg], axis=0)
-        
-    #     return out, w
-    
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
 
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -499,7 +477,7 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
         interval = (mass - interval, mass + interval)
 
     sig = dataset.signal[dataset.signal['mA'] == mass]
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     
     bkg = dataset.background
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -570,7 +548,7 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     w_b = bkg[weight_column].values
@@ -680,7 +658,7 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
@@ -771,7 +749,7 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
 def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, size=(12, 10), 
               legend='best', bins=25, share_y=True, weight_column='weight', path='plot', seed=utils.SEED, 
               save=None, min_limit=None, max_limit=None, palette=PALETTE):
-
+    """Variables at priori (before applying NN) vs poteriori (after applying NN)"""
     def predict(model, x, cut):
         out = model.predict(x=x, batch_size=1024, verbose=0)
         out = np.asarray(out)
@@ -803,7 +781,7 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
     sig = dataset.signal[dataset.signal['mA'] == mass]
     bkg = dataset.background
     
-    sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+    # sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
     bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
@@ -917,7 +895,7 @@ def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', sa
     
             # select data
             s = sig[sig['mA'] == mass]
-            s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+            # s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
 
             b = dataset.background
             b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]

@@ -153,7 +153,7 @@ def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weigh
         sig = dataset.signal[dataset.signal['mA'] == mass]
         
         if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+            sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
 
         bkg = dataset.background
         bkg = bkg[(bkg['dimuon_M'] > interval[0]) & (bkg['dimuon_M'] < interval[1])]
@@ -896,7 +896,7 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
 
 
 def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', save=None, title='pNN', 
-                  auc=False, curve='roc', legend='best', weight_column='weight' signal_in_interval=False, **kwargs):
+                  auc=False, curve='roc', legend='best', weight_column='weight', signal_in_interval=False, **kwargs):
     is_roc = curve.lower() == 'roc'
     
     if isinstance(models_and_data, tuple):

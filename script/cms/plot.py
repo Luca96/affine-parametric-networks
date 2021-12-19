@@ -203,15 +203,15 @@ def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weigh
     return np.max(ams, axis=-1), cuts[np.argmax(ams, axis=-1)]
 
 
-def compare_significance(models: list, dataset: Dataset, mass: float, *args, path='plot', save=None, 
+def compare_significance(models_and_data: dict, mass: float, *args, path='plot', save=None, 
                          size=(12, 10), share_y=True, **kwargs):
-    fig, axes = plt.subplots(nrows=1, ncols=len(models), sharey=bool(share_y))
+    fig, axes = plt.subplots(nrows=1, ncols=len(models_and_data), sharey=bool(share_y))
     
-    fig.set_figwidth(size[0] * len(models))
+    fig.set_figwidth(size[0] * len(models_and_data))
     fig.set_figheight(size[1])
     
-    for i, model in enumerate(models):
-        significance(model, dataset, mass, *args, **kwargs, save=None, show=False, ax=axes[i])
+    for i, (key, (model, data)) in enumerate(models_and_data.items()):
+        significance(model, data, mass, *args, **kwargs, name=key, save=None, show=False, ax=axes[i])
     
     if isinstance(save, str):
         path = utils.makedir(path)
@@ -439,7 +439,7 @@ def pr_auc(true, pred, weights, cut: float, eps=1e-4):
 
 
 def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, signal_in_interval=False,
-                size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):
+                size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', ax=None, **kwargs):
     
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
@@ -460,32 +460,40 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
     x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
     
     # predict data
-    plt.figure(figsize=size)
-    plt.title(f'[{name}] ROC @ {int(mass)}mA [{title}]')
+    if ax is None:
+        plt.figure(figsize=size)
+        ax = plt.gca()
+
+        should_show = True
+    else:
+        should_show = False
     
+    ax.set_title(f'[{name}] ROC @ {int(mass)}mA [{title}]')
+
     for k, (model, cut) in models_and_cuts.items():
         out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
         w = np.concatenate(w, axis=0)
 
         fpr, tpr, auc, cut_fpr, cut_tpr = roc_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
     
-        plt.plot(fpr, tpr, label=f'AUC ({k}) {np.round(auc, digits)}')
-        plt.scatter(cut_fpr, cut_tpr, label=f'significance @ {round(cut, digits)}')
+        ax.plot(fpr, tpr, label=f'AUC ({k}) {np.round(auc, digits)}')
+        ax.scatter(cut_fpr, cut_tpr, label=f'significance @ {round(cut, digits)}')
     
-    plt.xlabel('Background Efficiency (False Positive Rate)')
-    plt.ylabel('Signal Efficienty (True Positive Rate)')
+    ax.set_xlabel('Background Efficiency (False Positive Rate)')
+    ax.set_ylabel('Signal Efficienty (True Positive Rate)')
     
-    plt.legend(loc='lower right')
+    ax.legend(loc='lower right')
     
     if isinstance(save, str):
         path = utils.makedir(path)
         plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
     
-    plt.show()
+    if should_show:    
+        plt.show()
 
-    
+
 def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, signal_in_interval=False,
-               size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', **kwargs):    
+               size=(12, 10), digits=3, path='plot', save=None, name='Model', weight_column='weight', ax=None, **kwargs):    
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
 
@@ -505,8 +513,15 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
     x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * mass)
     
     # predict data
-    plt.figure(figsize=size)
-    plt.title(f'[{name}] PR Curve @ {int(mass)}mA [{title}]')
+    if ax is None:
+        plt.figure(figsize=size)
+        ax = plt.gca()
+        
+        should_show = True
+    else:
+        should_show = False
+    
+    ax.set_title(f'[{name}] PR Curve @ {int(mass)}mA [{title}]')
     
     for k, (model, cut) in models_and_cuts.items():
         out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
@@ -514,19 +529,20 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
         
         precision, recall, auc, cut_prec, cut_rec = pr_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
         
-        plt.plot(recall, precision, label=f'AUC ({k}) {np.round(auc, digits)}')
-        plt.scatter(cut_rec, cut_prec, label=f'significance @ {round(cut, digits)}')
+        ax.plot(recall, precision, label=f'AUC ({k}) {np.round(auc, digits)}')
+        ax.scatter(cut_rec, cut_prec, label=f'significance @ {round(cut, digits)}')
     
-    plt.xlabel('Recall (signal efficiency)')
-    plt.ylabel('Precision (purity)')
+    ax.set_xlabel('Recall (signal efficiency)')
+    ax.set_ylabel('Precision (purity)')
     
-    plt.legend(loc='lower left')
+    ax.legend(loc='lower left')
     
     if isinstance(save, str):
         path = utils.makedir(path)
         plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
     
-    plt.show()
+    if should_show:
+        plt.show()
 
 
 def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, 

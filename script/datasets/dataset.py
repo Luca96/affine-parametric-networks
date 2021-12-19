@@ -144,6 +144,9 @@ class Dataset:
             self.names_df = pd.DataFrame({'name': self.background['name']})
             self.original_names = pd.DataFrame({'name': self.background['bkg_name']})
             self.background.drop(columns=['bkg_name'], inplace=True)
+        else:
+            self.names_df = pd.DataFrame({'name': self.background['name']})
+            self.original_names = self.names_df
 
         # add new var
         if add_var:

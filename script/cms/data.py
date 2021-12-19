@@ -267,8 +267,7 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
     # TODO: normalize mA e.g. divide by 1000?
     # TODO: normalize features?
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, features: list,
-                 beta=0.5, delta=50, balance=True, weight_column=None, sample_mass=False,
-                 seed=utils.SEED, intervals=None):
+                 delta=50, balance=True, weight_column=None, sample_mass=False, seed=utils.SEED, intervals=None):
         columns = features + ['mA', 'type', 'dimuon_M']
         self.indices = {'features': -3, 'mass': -3, 'label': -2, 'dimuon_M': -1}
         
@@ -324,9 +323,6 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         self.binned_mass = np.array(buckets)
 
         # make sure to take all the remaining events
-        # self.deltas[0] = (np.inf, self.deltas[0][1])
-        # self.deltas[-1] = (self.deltas[-1][0], np.inf)  
-
         self.deltas = self.deltas.astype(np.float32)
 
         self.deltas[0][0] = np.inf
@@ -348,35 +344,18 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
             s_ = {m: sig[sig['mA'] == m] for m in self.mass}
             b_ = {m: bkg[(bkg['dimuon_M'] > m - d1) & (bkg['dimuon_M'] < m + d2)] for m, (d1, d2) in zip(self.mass, self.deltas)}
         
-            # # num. sig and bkg such that #sig ~ #bkg
-            # num_s = list(map(lambda x: x.shape[0], s_.values()))
-            # num_b = list(map(lambda x: x.shape[0], b_.values()))
-            
-            # # compute weights
-            # ws = []
-            # wb = []
-            
             # slice data
             for i, m in enumerate(self.mass):
                 s = s_[m]
                 b = b_[m]
                 
-                # w_s = ws[i]
-                # w_b = wb[i]
-                
                 # signal
-                # w_s = np.ones((num_s[i], 1)) * w_s
-                # self.signals[m] = np.concatenate([s[columns].values, w_s], axis=-1)
                 self.signals[m] = s[columns].values
                 
                 # background
                 self.bkgs[m] = {}
                 
                 for name in b['name'].unique():
-                    # b_name = b[b['name'] == name]
-                    # w_name = np.ones((b_name[weight_column].shape[0], 1)) * w_b
-                    
-                    # self.bkgs[m][name] = np.concatenate([b_name[columns].values, w_name], axis=-1)
                     self.bkgs[m][name] = b[b['name'] == name][columns].values
         else:
             s = sig[columns]

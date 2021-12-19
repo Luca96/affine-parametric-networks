@@ -281,6 +281,21 @@ def get_compiled_affine(data, units=None, save=None, **kwargs):
     return get_compiled_model(cls=AffinePNN, data=data, units=units, save=save, **kwargs)
 
 
+def get_plot_axes(rows: int, cols: int, size=(12, 10)):
+    rows = int(rows)
+    cols = int(cols)
+
+    assert rows >= 1
+    assert cols >= 1
+
+    fig, axes = plt.subplots(nrows=rows, ncols=cols)
+
+    fig.set_figwidth(size[0] * cols)
+    fig.set_figheight(size[1] * rows)
+
+    return axes
+
+
 def plot_mass_reliance(result: dict, data, size=(12, 9), loc='best'):
     from script.datasets import Hepmass
     

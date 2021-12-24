@@ -37,10 +37,10 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     sig = dataset.signal[dataset.signal['mA'] == mass]
 
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
 
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
     num_sig = sig.shape[0]
     
@@ -128,7 +128,7 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     
     # title
     str0 = f'{title} (#bins = {bins})'
-    str1 = f'@{interval} dimuon_M (bkg)'
+    str1 = f'@{interval} dimuon_mass (bkg)'
     str2 = f'{name} Output Distribution @ {int(mass)}mA, {str1}'
     str3 = f'# signal = {sig.shape[0]}, # bkg = {bkg.shape[0]}'
     
@@ -153,10 +153,10 @@ def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weigh
         sig = dataset.signal[dataset.signal['mA'] == mass]
         
         if signal_in_interval:
-            sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+            sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
 
         bkg = dataset.background
-        bkg = bkg[(bkg['dimuon_M'] > interval[0]) & (bkg['dimuon_M'] < interval[1])]
+        bkg = bkg[(bkg['dimuon_mass'] > interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
         # prepare data
         x = pd.concat([sig[dataset.columns['feature']],
@@ -220,7 +220,7 @@ def compare_significance(models_and_data: dict, mass: float, *args, path='plot',
     plt.show()
 
     
-def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='weight',
+def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='weight', xticks=None,
                                bins=20, size=(10, 9), path='plot', save=None, signal_in_interval=False):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
@@ -244,10 +244,10 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
             s = sig[sig['mA'] == mass]
 
             if signal_in_interval:
-                s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+                s = s[(s['dimuon_mass'] >= m_low) & (s['dimuon_mass'] < m_up)]
 
             b = dataset.background
-            b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
+            b = b[(b['dimuon_mass'] >= m_low) & (b['dimuon_mass'] < m_up)]
 
             # prepare data
             x = pd.concat([s[dataset.columns['feature']],
@@ -266,12 +266,14 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
             cut[name].append(best_cut)
     
     # plot AMS and CUT
+    if xticks is None:
+        xticks = list(models_and_data.values())[0][-1].unique_signal_mass
+
     for key, ams_ in ams.items():
         cuts = cut[key]
-        data = models_and_data[key][1]
         
-        axes[0].plot(data.unique_signal_mass, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), 3)}')
-        axes[1].plot(data.unique_signal_mass, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
+        axes[0].plot(xticks, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), 3)}')
+        axes[1].plot(xticks, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
         
     axes[0].set_xlabel('Mass (GeV)')
     axes[0].set_ylabel('Significance / Max Significance')
@@ -311,10 +313,10 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
             sig = data.signal[data.signal['mA'] == mass]
             
             if signal_in_interval:
-                sig = sig[(sig['dimuon_M'] >= m_low) & (sig['dimuon_M'] < m_up)]
+                sig = sig[(sig['dimuon_mass'] >= m_low) & (sig['dimuon_mass'] < m_up)]
 
             bkg = data.background
-            bkg = bkg[(bkg['dimuon_M'] >= m_low) & (bkg['dimuon_M'] < m_up)]
+            bkg = bkg[(bkg['dimuon_mass'] >= m_low) & (bkg['dimuon_mass'] < m_up)]
 
              # prepare data
             x = pd.concat([sig[data.columns['feature']],
@@ -363,10 +365,10 @@ def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_col
     sig = dataset.signal[dataset.signal['mA'] == mass]
 
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
     num_sig = sig.shape[0]
     
@@ -397,7 +399,7 @@ def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_col
     w_sig = w_sig * (h_bkg / h_sig)
     w = np.concatenate([w_sig, w_bkg], axis=0)
     
-    str1 = f'@{interval} dimuon_M (bkg)'
+    str1 = f'@{interval} dimuon_mass (bkg)'
     
     # PR-curve
     PrecisionRecallDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[0],
@@ -447,10 +449,10 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
     sig = dataset.signal[dataset.signal['mA'] == mass]
 
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
 
     # prepare data
     x = pd.concat([sig[dataset.columns['feature']],
@@ -500,10 +502,10 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
     sig = dataset.signal[dataset.signal['mA'] == mass]
 
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
     
     bkg = dataset.background
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
 
     # prepare data
     x = pd.concat([sig[dataset.columns['feature']],
@@ -545,34 +547,9 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
         plt.show()
 
 
-def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list, interval=50.0, 
-               size=(12, 10), legend='best', bins=25, weight_column='weight', path='plot', signal_in_interval=False,
+def var_priori(dataset: Dataset, variables: list, mass: float, interval=50.0, size=(12, 10), 
+               legend='best', bins=25, weight_column='weight', path='plot', signal_in_interval=False,
                seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):
-    def predict(model, x, cut):
-        out = model.predict(x=x, batch_size=1024, verbose=0)
-        out = np.asarray(out)
-    
-        sig_mask = np.squeeze(out >= cut) & (y == 1.0)
-        bkg_mask = np.squeeze(out < cut) & (y == 0.0)
-
-        y_sig = np.squeeze(out[sig_mask])
-        y_bkg = np.squeeze(out[bkg_mask])
-
-        w_bkg = ds[bkg_mask][weight_column].values
-        w_sig = ds[sig_mask][weight_column].values
-
-        # compute signal weights
-        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-        h_bkg = np.sum(h_bkg)
-
-        h_sig, _ = np.histogram(y_sig, bins=bins)
-        h_sig = np.sum(h_sig)
-
-        w_sig = w_sig * (h_bkg / h_sig)
-        names = dataset.names_df.loc[ds[bkg_mask].index]
-        
-        return out, (sig_mask, bkg_mask), (y_sig, y_bkg), (w_sig, w_bkg), names 
-    
     if isinstance(interval, (int, float)):
         interval = (mass - interval, mass + interval)
 
@@ -580,13 +557,13 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
     bkg = dataset.background
     
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
 
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
     w_b = bkg[weight_column].values
     w_s = sig[weight_column].values
-    w_s = w_s * (np.sum(w_s) / np.sum(w_b))
+    w_s = w_s * (np.sum(w_b) / np.sum(w_s))
 
     names = np.squeeze(bkg['name'])
 
@@ -607,12 +584,12 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
             n_bins = 25
             max_limit = 11.0
 
-        elif col == 'dimuon_M':
+        elif col == 'dimuon_mass':
             n_bins = 25
-            # max_limit = 500.0
-            # min_limit = 300
+            max_limit = interval[1]
+            min_limit = interval[0]
         else:
-            n_bins = 25
+            n_bins = bins
             max_limit = None
 
         range_min = min(b.min(), s.min())
@@ -625,10 +602,10 @@ def var_priori(dataset: Dataset, model, variables: list, mass: float, cut: list,
             range_max = min(range_max, max_limit)
 
         # plot histograms
-        sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+        sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=n_bins,
                      weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
 
-        ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+        ax.hist(s, bins=n_bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
                 edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
                 weights=w_s)
 
@@ -692,9 +669,9 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
     bkg = dataset.background
     
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
 
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
     num_sig = sig.shape[0]
@@ -739,10 +716,10 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
                 n_bins = 25
                 max_limit = 11.0
 
-            elif col == 'dimuon_M':
+            elif col == 'dimuon_mass':
                 n_bins = 25
-                # max_limit = 500.0
-                # min_limit = 300
+                max_limit = interval[1]
+                min_limit = interval[0]
             else:
                 n_bins = 25
                 max_limit = None
@@ -757,10 +734,10 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
                 range_max = min(range_max, max_limit)
 
             # plot histograms
-            sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+            sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=n_bins,
                          weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
 
-            ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+            ax.hist(s, bins=n_bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
                     edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
                     weights=w[i][0])
 
@@ -817,9 +794,9 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
     bkg = dataset.background
     
     if signal_in_interval:
-        sig = sig[(sig['dimuon_M'] >= interval[0]) & (sig['dimuon_M'] < interval[1])]
+        sig = sig[(sig['dimuon_mass'] >= interval[0]) & (sig['dimuon_mass'] < interval[1])]
 
-    bkg = bkg[(bkg['dimuon_M'] >= interval[0]) & (bkg['dimuon_M'] < interval[1])]
+    bkg = bkg[(bkg['dimuon_mass'] >= interval[0]) & (bkg['dimuon_mass'] < interval[1])]
     
     ds = pd.concat([sig, bkg], axis=0)
     norm_w = np.sum(bkg[weight_column]) / np.sum(sig[weight_column])
@@ -867,10 +844,10 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
                 n_bins = 25
                 max_limit = 11.0
 
-            elif col == 'dimuon_M':
+            elif col == 'dimuon_mass':
                 n_bins = 25
-                # max_limit = 500.0
-                # min_limit = 300
+                max_limit = interval[1]
+                min_limit = interval[0]
             else:
                 n_bins = 25
                 max_limit = None
@@ -885,10 +862,10 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
                 range_max = min(range_max, max_limit)
 
             # plot histograms
-            sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+            sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=n_bins,
                          weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
 
-            ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+            ax.hist(s, bins=n_bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
                     edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
                     weights=ws)
 
@@ -934,10 +911,10 @@ def curve_vs_mass(models_and_data: dict, bins=20, size=(12, 10), path='plot', sa
             s = sig[sig['mA'] == mass]
 
             if signal_in_interval:
-                s = s[(s['dimuon_M'] >= m_low) & (s['dimuon_M'] < m_up)]
+                s = s[(s['dimuon_mass'] >= m_low) & (s['dimuon_mass'] < m_up)]
 
             b = dataset.background
-            b = b[(b['dimuon_M'] >= m_low) & (b['dimuon_M'] < m_up)]
+            b = b[(b['dimuon_mass'] >= m_low) & (b['dimuon_mass'] < m_up)]
 
             # prepare data
             x = pd.concat([s[dataset.columns['feature']],
@@ -1021,7 +998,6 @@ def _get_predictions_and_weights(model, x, y, sig: pd.DataFrame, bkg: pd.DataFra
     h_sig, _ = np.histogram(y_sig, bins=bins)
     h_sig = np.sum(h_sig)
 
-    # w_sig = np.ones_like(y_sig) * (h_bkg / h_sig)
     w_sig = w_sig * (h_bkg / h_sig)
     
     return out, (y_sig, y_bkg), (w_sig, w_bkg)

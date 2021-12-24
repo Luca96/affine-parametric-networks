@@ -1,5 +1,6 @@
 """Definition of custom layers"""
 
+import numpy as np
 import tensorflow as tf
 
 from tensorflow.keras.layers import *
@@ -114,3 +115,53 @@ class MassLossLayer(Layer):
             self.add_loss(tf.reduce_mean(loss))
 
         return labels
+
+
+class Clip(Layer):
+    """Layer that clips its inputs"""
+    def __init__(self, min_value: np.ndarray, max_value: np.ndarray, **kwargs):
+        super().__init__(**kwargs)
+
+        self.clip_min = tf.constant(min_value, dtype=tf.float32)
+        self.clip_min = tf.reshape(self.clip_min, shape=[-1])
+
+        self.clip_max = tf.constant(max_value, dtype=tf.float32)
+        self.clip_max = tf.reshape(self.clip_max, shape=[-1])
+
+        assert self.clip_min.shape == self.clip_max.shape
+        assert tf.reduce_all(self.clip_min < self.clip_max)
+
+    @tf.function
+    def call(self, x, **kwargs):
+        return tf.clip_by_value(x, self.clip_min, self.clip_max)
+
+
+class StandardScaler(Layer):
+    """Standardize inputs given statistics"""
+
+    def __init__(self, mean: np.ndarray, std: np.ndarray, **kwargs):
+        super().__init__(**kwargs)
+
+        self.mean = tf.constant(mean, dtype=tf.float32)
+        self.mean = tf.reshape(self.mean, shape=[-1])
+
+        self.std = tf.constant(std, dtype=tf.float32)
+        self.std = tf.reshape(self.std, shape=[-1])
+
+        assert self.mean.shape == self.std.shape
+
+    @tf.function
+    def call(self, x, **kwargs):
+        return (x - self.mean) / self.std
+
+
+class Divide(Layer):
+    """Divides the input by a given constant"""
+
+    def __init__(self, value: float, **kwargs):
+        super().__init__(**kwargs)
+
+        self.value = tf.constant(value, dtype=tf.float32)
+
+    def call(self, x, **kwargs):
+        return x / self.value

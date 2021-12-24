@@ -150,8 +150,8 @@ class Dataset:
 
         # add new var
         if add_var:
-            self.signal['dimuon_pt_M'] = self.signal['dimuon_pt'] / self.signal['dimuon_M']
-            self.background['dimuon_pt_M'] = self.background['dimuon_pt'] / self.background['dimuon_M']
+            self.signal['dimuon_pt_M'] = self.signal['dimuon_pt'] / self.signal['dimuon_mass']
+            self.background['dimuon_pt_M'] = self.background['dimuon_pt'] / self.background['dimuon_mass']
 
         self.ds = pd.concat([self.signal, self.background], ignore_index=True)
         # DO NOT reset index
@@ -167,7 +167,7 @@ class Dataset:
         else:
             self.current_mass_intervals = self.MASS_INTERVALS
         
-        self.signal_mass_bins = [x for x, _ in self.current_mass_intervals] + [self.ds['dimuon_M'].max() + 1.0]  # for `tfp.stats.find_bins` only
+        self.signal_mass_bins = [x for x, _ in self.current_mass_intervals] + [self.ds['dimuon_mass'].max() + 1.0]  # for `tfp.stats.find_bins` only
         self.signal_mass_bins = tf.constant(self.signal_mass_bins, dtype=tf.float32)
         
         # bkg's mass is uniformly distributed, make it distributes as signal's mass
@@ -207,7 +207,7 @@ class Dataset:
                        label='type', mass='mA')
         self.columns = columns
         
-        # add new feature: "dimuon_pt / dimuon_M"
+        # add new feature: "dimuon_pt / dimuon_mass"
         if add_var:
             self.columns['feature'].append('dimuon_pt_M')
 

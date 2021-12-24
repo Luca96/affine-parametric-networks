@@ -232,7 +232,7 @@ def get_checkpoint(path: str, monitor='val_auc'):
                            mode='max', save_best_only=True)
 
 
-def get_compiled_model(cls, data, units: list = None, save: str = None, curve='ROC', **kwargs):
+def get_compiled_model(cls, data_or_num_features, units: list = None, save: str = None, curve='ROC', **kwargs):
     from tensorflow.keras.metrics import AUC, Precision, Recall
     from script.datasets import Hepmass, Dataset
 
@@ -244,21 +244,19 @@ def get_compiled_model(cls, data, units: list = None, save: str = None, curve='R
 
     units = [300, 150, 100, 50] if units is None else units
     
-    if isinstance(data, Hepmass):
-        features_shape = (data.features.shape[-1],)
-    else:
-        features_shape = (data.train_features.shape[-1],)
-    
+    if isinstance(data_or_num_features, (int, float)):
+        features_shape = (int(data_or_num_features),)
+    else:    
+        # use number of feature column in `data`
+        features_shape = (len(data_or_num_features.columns['feature']),)
+
     model = cls(input_shapes=dict(m=(1,), x=features_shape), 
                 units=units, **kwargs)
 
     model.compile(lr=lr, **opt, **compile_args,
                   metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
                            Precision(name='precision'), Recall(name='recall'),
-                           SignificanceRatio(name='ams'),
-                           # Significance2(name='sig2'), 
-                           # Significance3(name='sig3')
-                           ])
+                           SignificanceRatio(name='ams-ratio')])
 
     if isinstance(save, str):
         return model, get_checkpoint(path=save, monitor=monitor)
@@ -268,27 +266,27 @@ def get_compiled_model(cls, data, units: list = None, save: str = None, curve='R
 
 def get_compiled_non_parametric(data, units=None, save=None, **kwargs):
     from script.models import NN
-    return get_compiled_model(cls=NN, data=data, units=units, save=save, **kwargs)
+    return get_compiled_model(cls=NN, data_or_num_features=data, units=units, save=save, **kwargs)
 
 
 def get_compiled_pnn(data, units=None, save=None, **kwargs):
     from script.models import PNN
-    return get_compiled_model(cls=PNN, data=data, units=units, save=save, **kwargs)
+    return get_compiled_model(cls=PNN, data_or_num_features=data, units=units, save=save, **kwargs)
 
 
 def get_compiled_affine(data, units=None, save=None, **kwargs):
     from script.models import AffinePNN
-    return get_compiled_model(cls=AffinePNN, data=data, units=units, save=save, **kwargs)
+    return get_compiled_model(cls=AffinePNN, data_or_num_features=data, units=units, save=save, **kwargs)
 
 
-def get_plot_axes(rows: int, cols: int, size=(12, 10)):
+def get_plot_axes(rows: int, cols: int, size=(12, 10), **kwargs):
     rows = int(rows)
     cols = int(cols)
 
     assert rows >= 1
     assert cols >= 1
 
-    fig, axes = plt.subplots(nrows=rows, ncols=cols)
+    fig, axes = plt.subplots(nrows=rows, ncols=cols, **kwargs)
 
     fig.set_figwidth(size[0] * cols)
     fig.set_figheight(size[1] * rows)

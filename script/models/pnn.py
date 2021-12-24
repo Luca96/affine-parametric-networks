@@ -25,23 +25,24 @@ class FocalLoss(tf.keras.losses.Loss):
     @tf.function
     def __call__(self, y, p, sample_weight=None):
         # `y = y_true`, `p = y_pred`
-        q = 1 - p
 
         # For numerical stability (so we don't inadvertently take the log of 0)
         p = tf.math.maximum(p, self.eps)
-        q = tf.math.maximum(q, self.eps)
+        p = tf.reshape(p, shape=(-1, 1))
+        # q = tf.math.maximum(1.0 - p, self.eps)
+
+        # prob of true class
+        pt = tf.where(y == 1.0, p, 1.0 - p)
 
         # Loss for the positive examples
         if tf.is_tensor(sample_weight) or isinstance(sample_weight, (tf.Tensor, np.ndarray)):
-            pos_loss = -sample_weight * (q ** self.gamma) * tf.math.log(p)
+            alpha = tf.reshape(sample_weight, shape=(-1, 1))
         else:
-            pos_loss = -(q ** self.gamma) * tf.math.log(p)
+            alpha = tf.ones_like(pt)
 
         # Loss for the negative examples
-        neg_loss = -(p ** self.gamma) * tf.math.log(q)
-
-        loss = y * pos_loss + (1.0 - y) * neg_loss
-        return loss
+        loss = -alpha * (1.0 - pt) ** self.gamma * tf.math.log(pt)
+        return tf.reduce_mean(loss)
 
 
 class WrappedAUC:
@@ -145,7 +146,7 @@ class PNN(tf.keras.Model):
         super().compile(optimizer, loss, metrics)
 
     def structure(self, shapes: dict, units=[128, 128], activation='relu', dropout=0.0, linear=False,
-                  noise=0.0, **kwargs) -> tuple:
+                  noise=0.0, preprocess: Dict[str, list] = None, **kwargs) -> tuple:
         assert len(units) > 1
 
         inspect = kwargs.pop('inspect', False)
@@ -165,14 +166,15 @@ class PNN(tf.keras.Model):
         apply_dropout = dropout > 0.0
         
         inputs = self.inputs_from_shapes(shapes)
+        preproc_inp = self.apply_preprocessing(inputs, preprocess)
 
         if noise > 0.0:
-            m = inputs['m']
+            m = preproc_inp['m']
             m = GaussianNoise(stddev=noise)(m)
         else:
-            m = inputs['m']
+            m = preproc_inp['m']
 
-        x = concatenate([inputs['x'], m])
+        x = concatenate([preproc_inp['x'], m])
 
         if linear:
             x = Linear(units=units.pop(0), **kwargs)(x)
@@ -208,6 +210,26 @@ class PNN(tf.keras.Model):
         # multi-class classification
         return Dense(units=self.num_classes, activation=kwargs.pop('activation', 'softmax'), 
                      name=name, **kwargs)(layer)
+
+    def apply_preprocessing(self, inputs: dict, preprocess: Dict[str, list] = None) -> dict:
+        if preprocess is None:
+            return inputs
+
+        inputs = {k: v for k, v in inputs.items()}  # make a copy
+
+        for k, layers in preprocess.items():
+            if k not in inputs:
+                continue
+
+            in_layer = inputs[k]
+            
+            for layer in layers:
+                in_layer = layer(in_layer)
+
+            inputs[k] = in_layer 
+
+        return inputs
+
 
     @tf.function
     def train_step(self, batch):
@@ -281,12 +303,6 @@ class PNN(tf.keras.Model):
 
         return debug
     
-    # def reset_metrics(self):
-    #     super().reset_metrics()
-
-    #     self.sig.assign(tf.zeros(self.init_shape))
-    #     self.bkg.assign(tf.zeros(self.init_shape))
-
     def apply_gradients(self, tape, loss):
         variables = self.trainable_variables
 
@@ -373,29 +389,6 @@ class PNN(tf.keras.Model):
         y = tf.cast(x['m'] == mass, dtype=tf.float32)
 
         return dict(x=sig_, m=mass), y
-
-    # def compute_significance(self, true: tf.Tensor, pred: tf.Tensor):
-        sig_mask = tf.reshape(true == 1.0, shape=[-1])
-        bkg_mask = tf.logical_not(sig_mask)
-        
-        sig = []
-        bkg = []
-        
-        for i in range(self.cuts.shape[0] - 1):
-            cut_mask = (pred >= self.cuts[i]) & (pred < self.cuts[i + 1])
-            cut_mask = tf.reshape(cut_mask, shape=[-1])
-
-            # select signals and bkg (as true positives of both classes)
-            s = tf.shape(pred[sig_mask & cut_mask])[0]
-            b = tf.shape(pred[bkg_mask & cut_mask])[0]
-            
-            sig.append(s)
-            bkg.append(b)
-
-        self.sig.assign_add(tf.cast(sig, dtype=tf.float32))
-        self.bkg.assign_add(tf.cast(bkg, dtype=tf.float32))
-
-        return tf.reduce_max(self.sig / tf.square(self.sig + self.bkg))
 
     @staticmethod
     def inputs_from_shapes(shapes: Dict[str, tuple]) -> Dict[str, Input]:

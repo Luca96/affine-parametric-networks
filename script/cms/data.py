@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import math
 
 from sklearn.model_selection import train_test_split
 
@@ -141,9 +142,9 @@ class BalancedSequence(tf.keras.utils.Sequence):
                  features: list, balance_signal=True, balance_bkg=True, seed=utils.SEED,
                  sample_mass=False, bins: list = None):
         # select data
-        self.sig = signal[features + ['mA', 'type', 'dimuon_M']]
+        self.sig = signal[features + ['mA', 'type', 'dimuon_mass']]
         self.names = background['name']
-        self.bkg = background[features + ['mA', 'type', 'dimuon_M']]
+        self.bkg = background[features + ['mA', 'type', 'dimuon_mass']]
         
         self.mass = np.sort(self.sig['mA'].unique())
 
@@ -261,15 +262,94 @@ class BalancedSequence(tf.keras.utils.Sequence):
         return train_ds, valid_ds, test_ds
 
 
+class EvalSequence(tf.keras.utils.Sequence):
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, intervals: list, batch_size: int, 
+                 features: list, weight_column=None, seed=utils.SEED):
+        assert isinstance(intervals, (list, np.ndarray))
+        assert batch_size >= 1
+
+        columns = features + ['mA', 'type']
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        
+        sig = signal
+        bkg = background
+
+        if isinstance(weight_column, str):
+            assert (weight_column in sig) and (weight_column in bkg)
+            self.should_weight = True
+
+            columns += [weight_column]
+
+            self.indices = {k: idx - 1 for k, idx in self.indices.items()}  # decrease index by "-1"
+            self.indices['weight'] = -1  # add new index for sample-weights
+        else:
+            self.should_weight = False
+
+        self.gen = utils.get_random_generator(seed)
+        self.batch_size = int(batch_size)
+
+        self.mass = np.sort(sig['mA'].unique())
+        assert len(self.mass) == len(intervals)
+
+        # select data
+        self.data = []
+        count = 0
+
+        for mass, (low, up) in zip(self.mass, intervals):
+            s = sig[sig['mA'] == mass][columns]
+            b = bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)][columns]
+
+            self.data.append(s.values)
+
+            # set mA for corresponding background (in interval)
+            b_values = b.values
+            b_values[:, self.indices['mass']] = mass
+
+            self.data.append(b_values)
+
+            count += s.shape[0] + b.shape[0]
+
+        self.data = np.concatenate(self.data, axis=0)
+        self.gen.shuffle(self.data)
+
+        # sample some datapoints if last batch is not full
+        remaining_samples = count % self.batch_size
+
+        if remaining_samples > 0:
+            samples = self.gen.choice(self.data, size=remaining_samples)
+            self.data = np.concatenate([self.data, samples], axis=0)
+
+    def __len__(self):
+        return self.data.shape[0] // self.batch_size
+
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        stop_idx = start_idx + self.batch_size
+
+        z = self.data[start_idx:stop_idx]
+
+        # split data (features, mass, label, dimuon_mass, weight)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']].reshape(-1, 1)
+        y = z[:, self.indices['label']].reshape(-1, 1)
+        
+        if self.should_weight:
+            w = z[:, self.indices['weight']]
+            return dict(x=x, m=m), y, w.reshape(-1, 1)
+        
+        return dict(x=x, m=m), y
+
+    def to_tf_dataset(self):
+        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
+
+
 class MassBalancedSequence(tf.keras.utils.Sequence):
     """tf.keras.Sequence with balanced batches for each mass"""
     
-    # TODO: normalize mA e.g. divide by 1000?
-    # TODO: normalize features?
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, features: list,
                  delta=50, balance=True, weight_column=None, sample_mass=False, seed=utils.SEED, intervals=None):
-        columns = features + ['mA', 'type', 'dimuon_M']
-        self.indices = {'features': -3, 'mass': -3, 'label': -2, 'dimuon_M': -1}
+        columns = features + ['mA', 'type', 'dimuon_mass']
+        self.indices = {'features': -3, 'mass': -3, 'label': -2, 'dimuon_mass': -1}
         
         sig = signal
         bkg = background
@@ -290,23 +370,23 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         if intervals is None:
             # use the "mass" to determine the intervals given "deltas"
             if isinstance(delta, (int, float)):
-                self.deltas = [(delta, delta)] * len(self.mass)
+                deltas = [(delta, delta)] * len(self.mass)
 
             elif isinstance(delta, tuple):
-                self.deltas = [delta] * len(self.mass)
+                deltas = [delta] * len(self.mass)
             else:
                 assert isinstance(delta, (list, np.ndarray))
                 assert len(delta) == len(self.mass)
 
-                self.deltas = delta
+                deltas = delta
 
-            self.deltas = np.array(self.deltas)
+            deltas = np.array(deltas)
             
-            self.mass_intervals = np.stack([self.mass - self.deltas[:, 0],
-                                            self.mass + self.deltas[:, 1]], axis=-1)
+            self.mass_intervals = np.stack([self.mass - deltas[:, 0],
+                                            self.mass + deltas[:, 1]], axis=-1)
         else:
             self.mass_intervals = np.array(intervals)
-            self.deltas = np.abs(self.mass_intervals - self.mass[:, np.newaxis])
+            # self.deltas = np.abs(self.mass_intervals - self.mass[:, np.newaxis])
 
         # considered bins (mass_intervals) may contain more than one mass; so sample them, if so
         buckets = []
@@ -323,10 +403,14 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         self.binned_mass = np.array(buckets)
 
         # make sure to take all the remaining events
-        self.deltas = self.deltas.astype(np.float32)
+        # self.deltas = self.deltas.astype(np.float32)
+        self.mass_intervals = self.mass_intervals.astype(np.float32)
 
-        self.deltas[0][0] = np.inf
-        self.deltas[-1][1] = np.inf  
+        # self.deltas[0][0] = np.inf
+        # self.deltas[-1][1] = np.inf  
+
+        self.mass_intervals[0][0] = np.inf
+        self.mass_intervals[-1][1] = np.inf  
 
         self.should_balance = bool(balance)
         self.should_sample_mass = bool(sample_mass)
@@ -342,7 +426,7 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
             self.bkgs = {}
             
             s_ = {m: sig[sig['mA'] == m] for m in self.mass}
-            b_ = {m: bkg[(bkg['dimuon_M'] > m - d1) & (bkg['dimuon_M'] < m + d2)] for m, (d1, d2) in zip(self.mass, self.deltas)}
+            b_ = {m: bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)] for m, (low, up) in zip(self.mass, self.mass_intervals)}
         
             # slice data
             for i, m in enumerate(self.mass):
@@ -387,7 +471,7 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         
         z = np.concatenate(z, axis=0)
         
-        # split data (features, mass, label, dimuon_M, weight)
+        # split data (features, mass, label, dimuon_mass, weight)
         x = z[:, :self.indices['features']]
         m = z[:, self.indices['mass']]
         y = z[:, self.indices['label']]
@@ -399,19 +483,11 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         else:
             # take mass from corresponding mass interval
             mask = y == 0.0
-            # dimuon_mass = z[:, self.indices['dimuon_M']]
-            
-            # idx = np.digitize(dimuon_mass[mask], self.mass_intervals, right=True)
-            # # idx = np.clip(idx, a_min=0, a_max=len(self.mass) - 1)
-            # idx = np.clip(idx, a_min=0, a_max=self.binned_mass.shape[0] - 1)
-    
-            # # m[mask] = self.mass[idx]
-            # m[mask] = [self.gen.choice(bucket) for bucket in self.binned_mass[idx]]
 
             if self.should_balance:
                 m[mask] = m_bkg
             else:
-                dimuon_mass = z[:, self.indices['dimuon_M']]
+                dimuon_mass = z[:, self.indices['dimuon_mass']]
 
                 idx = np.digitize(dimuon_mass[mask], self.mass_intervals[:, 1], right=True)
                 idx = np.clip(idx, a_min=0, a_max=len(self.mass) - 1)
@@ -447,18 +523,27 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         sequences = []
 
         for i, (sig, bkg) in enumerate(splits):
+            # if i == 0:
+            #     # assume training split is at first index
+            #     batch_size = train_batch
+            #     sample_mass = case == 1
+            #     balance = True
+            # else:
+            #     batch_size = eval_batch
+            #     sample_mass = False
+            #     balance = False
+
+            # seq = cls(signal=sig, background=bkg, batch_size=batch_size, sample_mass=sample_mass,
+            #           features=dataset.columns['feature'], balance=balance, **kwargs)
+
             if i == 0:
-                batch_size = train_batch
-                sample_mass = case == 1
-                balance = True
+                # assume training split is at first index
+                seq = cls(signal=sig, background=bkg, batch_size=train_batch, sample_mass=case == 1,
+                          features=dataset.columns['feature'], balance=True, **kwargs)
             else:
-                batch_size = eval_batch
-                sample_mass = False
-                balance = False
-
-            seq = cls(signal=sig, background=bkg, batch_size=batch_size, sample_mass=sample_mass,
-                      features=dataset.columns['feature'], balance=balance, **kwargs)
-
+                seq = EvalSequence(signal=sig, background=bkg, batch_size=eval_batch, features=dataset.columns['feature'],
+                                   **kwargs)
+            
             sequences.append(seq)
         
         # return tf.Datasets
@@ -481,8 +566,8 @@ class SingleBalancedSequence(tf.keras.utils.Sequence):
             # random flat background
             pass
         else:
-            # case 2: bkg centered around mass in dimuon_M
-            bkg = bkg[(bkg['dimuon_M'] > mass - delta) & (bkg['dimuon_M'] < mass + delta)]
+            # case 2: bkg centered around mass in dimuon_mass
+            bkg = bkg[(bkg['dimuon_mass'] > mass - delta) & (bkg['dimuon_mass'] < mass + delta)]
         
         self.sig = sig[features + ['mA', 'type']]
         self.names = bkg['name']

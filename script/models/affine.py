@@ -8,7 +8,7 @@ from script.utils import assert_2d_array, tf_jensen_shannon_divergence
 from script.models import PNN
 from script.models.layers import AffineConditioning, MassEmbeddingLayer
 
-from typing import Union, List
+from typing import Union, List, Dict
 
 
 class AffinePNN(PNN):
@@ -44,9 +44,11 @@ class AffinePNN(PNN):
             self.mass_weights = None
         
     def structure(self, shapes: dict, activation='relu', dropout=0.0, feature_noise=0.0, mass_noise=0.0, 
-                  embed=None, affine={}, batch_normalization=False, shared=False, **kwargs) -> tuple:
+                  embed=None, affine={}, batch_normalization=False, shared=False, 
+                  preprocess: Dict[str, list] = None, **kwargs) -> tuple:
         inputs = self.inputs_from_shapes(shapes)
-        
+        preproc_inp = self.apply_preprocessing(inputs, preprocess)
+
         apply_dropout = dropout > 0.0
         output_args = kwargs.pop('output', {})
         units = kwargs.pop('units')
@@ -54,8 +56,8 @@ class AffinePNN(PNN):
         if activation == 'leaky_relu':
             activation = tf.nn.leaky_relu
         
-        x = inputs['x']
-        m = inputs['m']
+        x = preproc_inp['x']
+        m = preproc_inp['m']
 
         if kwargs.pop('concat', False):
             x = concatenate([x, m])

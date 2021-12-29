@@ -626,6 +626,66 @@ def var_priori(dataset: Dataset, variables: list, mass: float, interval=50.0, si
     plt.show()
 
 
+def var(dataset: Dataset, variable: str, size=(12, 10), legend='best', bins=25, y_scale=None,
+        weight_column='weight', path='plot', save=None, min_limit=None, max_limit=None, 
+        palette=PALETTE):
+    """Plots a single variable by considering all the data"""
+    sig = dataset.signal
+    bkg = dataset.background
+    
+    w_b = bkg[weight_column].values
+    w_s = sig[weight_column].values
+    w_s = w_s * (np.sum(w_b) / np.sum(w_s))
+
+    names = np.squeeze(bkg['name'])
+
+    fig = plt.figure(figsize=size)
+    ax = fig.gca()
+
+    # plot
+    col = variable
+    s = sig[col]
+    b = bkg[col]
+    
+    df = pd.DataFrame({col: b, 'Bkg': names, 'weight': w_b})
+
+    range_min = min(b.min(), s.min())
+    range_max = max(b.max(), s.max())
+
+    if isinstance(min_limit, (int, float)):
+        range_min = max(range_min, min_limit)
+
+    if isinstance(max_limit, (int, float)):
+        range_max = min(range_max, max_limit)
+
+    # plot histograms
+    sns.histplot(data=df, x=col, hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
+                 weights='weight', ax=ax, binrange=(range_min, range_max), palette=palette)
+
+    ax.hist(s, bins=bins, alpha=0.7, label='signal', hatch='//', color=palette['signal'], 
+            edgecolor=palette['signal'], linewidth=2,  histtype='step', range=(range_min, range_max), 
+            weights=w_s)
+
+    leg = ax.get_legend()
+    ax.legend(loc='upper left')
+    ax.add_artist(leg)
+
+    ax.set_title(f'{col} Distribution')
+    ax.set_xlabel(col)
+    ax.set_ylabel('Weighted Count')
+    
+    if isinstance(y_scale, str):
+        ax.set_yscale(y_scale)
+
+    fig.tight_layout()
+    
+    if isinstance(save, str):
+        path = utils.makedir(path)
+        plt.savefig(os.path.join(path, f'{save}_{col}_{int(mass)}_mA.png'), bbox_inches='tight')
+    
+    plt.show()
+
+
 def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float, cuts: list, signal_in_interval=False,
                    interval=50.0, size=(12, 10), legend='best', bins=25, share_y=True, weight_column='weight',
                    path='plot', seed=utils.SEED, save=None, min_limit=None, max_limit=None, palette=PALETTE):

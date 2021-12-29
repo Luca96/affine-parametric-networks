@@ -17,7 +17,7 @@ class NN(PNN):
     	super().__init__(*args, name=name, **kwargs)
 
     def structure(self, shapes: dict, units=[128, 128], activation='relu', dropout=0.0, linear=False,
-                  **kwargs) -> tuple:
+                  preprocess: Dict[str, list] = None, **kwargs) -> tuple:
         assert len(units) > 1
 
         output_args = kwargs.pop('output', {})
@@ -33,7 +33,8 @@ class NN(PNN):
         apply_dropout = dropout > 0.0
         
         inputs = self.inputs_from_shapes(shapes)
-        x = inputs['x']
+        preproc_inp = self.apply_preprocessing(inputs, preprocess)
+        x = preproc_inp['x']
         
         if linear:
             x = Linear(units=units.pop(0), **kwargs)(x)

@@ -241,6 +241,7 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
     compile_args = kwargs.pop('compile', {})
 
     monitor = kwargs.pop('monitor', 'val_auc')
+    ams_args = kwargs.pop('ams', {})
 
     units = [300, 150, 100, 50] if units is None else units
     
@@ -256,7 +257,7 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
     model.compile(lr=lr, **opt, **compile_args,
                   metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
                            Precision(name='precision'), Recall(name='recall'),
-                           SignificanceRatio(name='ams-ratio')])
+                           SignificanceRatio(name='ams', **ams_args)])
 
     if isinstance(save, str):
         return model, get_checkpoint(path=save, monitor=monitor)
@@ -406,7 +407,7 @@ def project_manifold(model, x, y, amount=100_000, size=(12, 10), name='pNN', pal
 
 
 class SignificanceRatio(tf.keras.metrics.Metric):
-    def __init__(self, bins=20, **kwargs):
+    def __init__(self, bins=50, **kwargs):
         super().__init__(**kwargs)
 
         self.bins = int(bins)
@@ -418,7 +419,6 @@ class SignificanceRatio(tf.keras.metrics.Metric):
 
     # @tf.function
     def update_state(self, true, pred, *args, **kwargs):
-        # sig_mask = tf.squeeze(true) == 1.0
         sig_mask = tf.reshape(true, shape=[-1]) == 1.0
         bkg_mask = tf.logical_not(sig_mask)
 

@@ -409,8 +409,8 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         # self.deltas[0][0] = np.inf
         # self.deltas[-1][1] = np.inf  
 
-        self.mass_intervals[0][0] = np.inf
-        self.mass_intervals[-1][1] = np.inf  
+        self.mass_intervals[0][0] = min(sig['dimuon_mass'].min(), bkg['dimuon_mass'].min()) - 1.0
+        self.mass_intervals[-1][1] = max(sig['dimuon_mass'].max(), bkg['dimuon_mass'].max()) + 1.0
 
         self.should_balance = bool(balance)
         self.should_sample_mass = bool(sample_mass)
@@ -447,7 +447,7 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
             
             self.all = np.concatenate([s.values, b.values], axis=0)
             self.batch_size = int(batch_size)
-    
+
     def __len__(self):
         return self.num_batches
     
@@ -521,28 +521,15 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         
         # create sequences
         sequences = []
+        features = kwargs.pop('features', dataset.columns['feature'])
 
         for i, (sig, bkg) in enumerate(splits):
-            # if i == 0:
-            #     # assume training split is at first index
-            #     batch_size = train_batch
-            #     sample_mass = case == 1
-            #     balance = True
-            # else:
-            #     batch_size = eval_batch
-            #     sample_mass = False
-            #     balance = False
-
-            # seq = cls(signal=sig, background=bkg, batch_size=batch_size, sample_mass=sample_mass,
-            #           features=dataset.columns['feature'], balance=balance, **kwargs)
-
             if i == 0:
                 # assume training split is at first index
                 seq = cls(signal=sig, background=bkg, batch_size=train_batch, sample_mass=case == 1,
-                          features=dataset.columns['feature'], balance=True, **kwargs)
+                          features=features, balance=True, **kwargs)
             else:
-                seq = EvalSequence(signal=sig, background=bkg, batch_size=eval_batch, features=dataset.columns['feature'],
-                                   **kwargs)
+                seq = EvalSequence(signal=sig, background=bkg, batch_size=eval_batch, features=features, **kwargs)
             
             sequences.append(seq)
         

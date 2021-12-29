@@ -124,13 +124,6 @@ class PNN(tf.keras.Model):
         else:
             self.should_be_adversarial = False
 
-        # # significance (AMS)
-        # self.cuts = tf.linspace(0.0, 1.0 + eps, num=bins)
-        # self.init_shape = (tf.shape(self.cuts)[0] - 1,)
-
-        # self.sig = tf.Variable(tf.zeros(self.init_shape), trainable=False)
-        # self.bkg = tf.Variable(tf.zeros(self.init_shape), trainable=False)
-
     def compile(self, optimizer_class=tfo.Adam, loss=None, metrics=None, lr=0.001, **kwargs):
         self.lr = DynamicParameter.create(value=lr)
 
@@ -146,7 +139,7 @@ class PNN(tf.keras.Model):
         super().compile(optimizer, loss, metrics)
 
     def structure(self, shapes: dict, units=[128, 128], activation='relu', dropout=0.0, linear=False,
-                  noise=0.0, preprocess: Dict[str, list] = None, **kwargs) -> tuple:
+                  noise=0.0, preprocess: Dict[str, list] = None, batch_norm=False, **kwargs) -> tuple:
         assert len(units) > 1
 
         inspect = kwargs.pop('inspect', False)
@@ -185,6 +178,9 @@ class PNN(tf.keras.Model):
             else:
                 x = Dense(units=num_units, activation=activation, **kwargs)(x)
             
+            if batch_norm:
+                x = BatchNormalization()(x)
+
             if apply_dropout:
                 if is_selu:
                     x = AlphaDropout(rate=dropout, seed=utils.SEED)(x)

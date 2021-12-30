@@ -288,7 +288,7 @@ def get_test_from_dataset(dataset: Dataset, process: str, tanb: float = None, ma
 
 
 class CutBased:
-    """Classification rules of the CMS cut-based analisys"""
+    """Classification rules of the CMS cut-based analisys, CAT-1"""
     def __init__(self, bjet_n=-2, ljet_n=-1, met_pt=3, bkg_label=-1.0):
         self.cut_bjet_n = lambda x: x[:, bjet_n] == 1.0
         self.cut_ljet_n = lambda x: x[:, ljet_n] < 2.0
@@ -303,6 +303,25 @@ class CutBased:
         y = tf.logical_and(self.cut_bjet_n(x), self.cut_ljet_n(x))
         y = tf.logical_and(y, self.cut_met_pt(x))
         
+        y = tf.cast(y, dtype=tf.float32)
+        y = tf.where(y == 0.0, self.bkg_label, 1.0)
+        
+        return tf.reshape(y, shape=(-1, 1))
+
+
+class CutBased2:
+    """Classification rules of the CMS cut-based analisys, CAT-2"""
+    def __init__(self, ljet_n=-4, met_pt=3, bkg_label=-1.0):
+        self.cut_ljet_n = lambda x: x[:, ljet_n] < 2.0
+        self.cut_met_pt = lambda x: x[:, met_pt] < 80.0
+        
+        self.bkg_label = float(bkg_label)
+        
+    def predict(self, x, *args, **kwargs):
+        if isinstance(x, dict):
+            x = x['x']
+        
+        y = tf.logical_and(self.cut_ljet_n(x), self.cut_met_pt(x))
         y = tf.cast(y, dtype=tf.float32)
         y = tf.where(y == 0.0, self.bkg_label, 1.0)
         

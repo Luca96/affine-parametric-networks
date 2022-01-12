@@ -144,11 +144,15 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     return np.max(ams), cuts[k]
 
 
-def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight', signal_in_interval=False):
+def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight',
+                          signal_in_interval=False, intervals: list = None):
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
     
-    for mass, interval in zip(dataset.unique_signal_mass, dataset.mass_intervals):
+    if intervals is None:
+        intervals = dataset.mass_intervals
+    
+    for mass, interval in zip(dataset.unique_signal_mass, intervals):
         # select both signal and background in interval (m-d, m+d)
         sig = dataset.signal[dataset.signal['mA'] == mass]
         
@@ -220,34 +224,35 @@ def compare_significance(models_and_data: dict, mass: float, *args, path='plot',
     plt.show()
 
     
-def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='weight', xticks=None,
-                               bins=20, size=(10, 9), path='plot', save=None, signal_in_interval=False):
+def significance_vs_mass(dataset, models: dict, title='', weight_column='weight', xticks=None,
+                         bins=20, size=(10, 9), path='plot', save=None, ratio=False,
+                         signal_in_interval=False, intervals: list = None):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
     fig.set_figheight(size[1])
     
-    if isinstance(models_and_data, tuple):
-        models_and_data = {'': models_and_data}
-    
     ams = {}
     cut = {}
     
-    for name, (model, dataset) in models_and_data.items():
+    if intervals is None:
+        intervals = dataset.mass_intervals
+    
+    for name, model in models.items():
         ams[name] = []
         cut[name] = []
         
-        for mass, (m_low, m_up) in zip(dataset.unique_signal_mass, dataset.mass_intervals):
+        for mass, (m_low, m_up) in zip(dataset.unique_signal_mass, intervals):
             sig = dataset.signal
             
             # select data
             s = sig[sig['mA'] == mass]
 
             if signal_in_interval:
-                s = s[(s['dimuon_mass'] >= m_low) & (s['dimuon_mass'] < m_up)]
+                s = s[(s['dimuon_mass'] > m_low) & (s['dimuon_mass'] < m_up)]
 
             b = dataset.background
-            b = b[(b['dimuon_mass'] >= m_low) & (b['dimuon_mass'] < m_up)]
+            b = b[(b['dimuon_mass'] > m_low) & (b['dimuon_mass'] < m_up)]
 
             # prepare data
             x = pd.concat([s[dataset.columns['feature']],
@@ -260,14 +265,17 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
             out, y_pred, w = _get_predictions_and_weights(model, x, y, sig=s, bkg=b, bins=bins, weight_column=weight_column)
             best_ams, best_cut = _get_best_ams_cut(*y_pred, *w, bins=bins)
             
-            max_ams = np.sum(w[0]) / np.sqrt(np.sum(w[0]))
-            
-            ams[name].append(best_ams / max_ams)
+            if ratio:
+                max_ams = np.sum(w[0]) / np.sqrt(np.sum(w[0]))
+                ams[name].append(best_ams / max_ams)
+            else:
+                ams[name].append(best_ams)
+                
             cut[name].append(best_cut)
     
     # plot AMS and CUT
     if xticks is None:
-        xticks = list(models_and_data.values())[0][-1].unique_signal_mass
+        xticks = dataset.unique_signal_mass
 
     for key, ams_ in ams.items():
         cuts = cut[key]
@@ -276,7 +284,7 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
         axes[1].plot(xticks, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
         
     axes[0].set_xlabel('Mass (GeV)')
-    axes[0].set_ylabel('Significance / Max Significance')
+    axes[0].set_ylabel('Significance / Max Significance' if ratio else r'Significance: $s/\sqrt{s + b}$')
     axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
     axes[0].legend(loc='best')
     
@@ -292,7 +300,11 @@ def significance_ratio_vs_mass(models_and_data: dict, title='', weight_column='w
         plt.savefig(os.path.join(path, f'{save}.png'), bbox_inches='tight')
     
     plt.show()
+
     
+def significance_ratio_vs_mass(*args, **kwargs):
+    return significance_vs_mass(*args, ratio=True, **kwargs)
+
 
 def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='Model', 
         path='plot', save=None, show=True, ax=None, weight_column='weight', signal_in_interval=False):
@@ -491,6 +503,78 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
         plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
     
     if should_show:    
+        plt.show()
+
+
+def auc_vs_mass(dataset, models: dict, intervals: list = None, size=(12, 10), digits=3,
+                path='plot', save=None, weight_column='weight', ax=None, which='ROC', **kwargs):
+    """Plots the AUC of the ROC curve at each signal's mA""" 
+    assert which.upper() in ['ROC', 'PR']
+    
+    sig = dataset.signal
+    bkg = dataset.background
+    
+    if which.upper() == 'ROC':
+        curve_fn = roc_auc
+        title = 'ROC-AUC'
+    else:
+        curve_fn = pr_auc
+        title = 'PR-AUC'
+    
+    if intervals is None:
+        intervals = dataset.mass_intervals
+    
+    mass = dataset.unique_signal_mass
+    auc = {k: [] for k in models.keys()}
+    
+    for name, model in models.items():
+        for m, (low, up) in zip(mass, intervals):
+            s = sig[sig['mA'] == m]
+            b = bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)]
+
+            # prepare data
+            x = pd.concat([s[dataset.columns['feature']],
+                           b[dataset.columns['feature']]], axis=0).values
+
+            y = np.reshape(pd.concat([s['type'], b['type']], axis=0).values, newshape=[-1])
+            x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * m)
+            
+            # predict data
+            out, _, w = _get_predictions_and_weights(model, x, y, s, b, 50, weight_column)
+            w = np.concatenate(w, axis=0)
+
+            _, _, m_auc, _, _ = curve_fn(true=y, pred=out, weights=w, cut=0.5, **kwargs)
+            auc[name].append(m_auc)
+        
+    # plot
+    if ax is None:
+        plt.figure(figsize=size)
+        ax = plt.gca()
+
+        should_show = True
+    else:
+        should_show = False
+    
+    ax.set_title(f'{title} [weighted = {isinstance(weight_column, str)}]')
+    
+    for k, v in auc.items():
+        ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
+    
+    if which.upper() == 'ROC':
+        ax.set_xlabel('Background Efficiency (False Positive Rate)')
+        ax.set_ylabel('Signal Efficienty (True Positive Rate)')
+    else:
+        ax.set_xlabel('Signal Efficiency (Recall)')
+        ax.set_ylabel('Purity (Precision)')
+        
+    ax.legend(loc='best')
+    
+    if isinstance(save, str):
+        path = utils.makedir(path)
+        plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
+    
+    if should_show:
+        plt.tight_layout()
         plt.show()
 
 
@@ -1049,16 +1133,20 @@ def _get_predictions_and_weights(model, x, y, sig: pd.DataFrame, bkg: pd.DataFra
     y_bkg = np.squeeze(out[y == 0.0])
 
     # compute weights
-    w_bkg = bkg[weight_column].values
-    w_sig = sig[weight_column].values
+    if weight_column is None:
+        w_bkg = np.ones_like(y_bkg)
+        w_sig = np.ones_like(y_sig)
+    else:
+        w_bkg = bkg[weight_column].values
+        w_sig = sig[weight_column].values
 
-    h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
-    h_bkg = np.sum(h_bkg)
+        h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+        h_bkg = np.sum(h_bkg)
 
-    h_sig, _ = np.histogram(y_sig, bins=bins)
-    h_sig = np.sum(h_sig)
+        h_sig, _ = np.histogram(y_sig, bins=bins)
+        h_sig = np.sum(h_sig)
 
-    w_sig = w_sig * (h_bkg / h_sig)
+        w_sig = w_sig * (h_bkg / h_sig)
     
     return out, (y_sig, y_bkg), (w_sig, w_bkg)
 

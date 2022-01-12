@@ -38,26 +38,7 @@ def np_sample(x: np.ndarray, amount: int, generator):
     return x[indices]
 
 
-def train_val_test_split(dataset: Dataset, valid_size=0.25, test_size=0.2, seed=utils.SEED):
-    assert isinstance(dataset, Dataset)
-
-    sig = dataset.signal
-    bkg = dataset.background
-    
-    # test split
-    train_sig, test_sig = train_test_split(sig, test_size=test_size, random_state=seed)
-    train_bkg, test_bkg = train_test_split(bkg, test_size=test_size, random_state=seed)
-    
-    # train-valid split
-    train_sig, valid_sig = train_test_split(train_sig, test_size=valid_size, random_state=seed)
-    train_bkg, valid_bkg = train_test_split(train_bkg, test_size=valid_size, random_state=seed)
-    
-    return (train_sig, train_bkg), (valid_sig, valid_bkg), (test_sig, test_bkg)
-
-
 def train_valid_split(dataset: Dataset, valid_size=0.25, seed=utils.SEED):
-    assert isinstance(dataset, Dataset)
-
     sig = dataset.signal
     bkg = dataset.background
     
@@ -68,79 +49,228 @@ def train_valid_split(dataset: Dataset, valid_size=0.25, seed=utils.SEED):
     return (train_sig, train_bkg), (valid_sig, valid_bkg)
 
 
-class BaselineSequence(tf.keras.utils.Sequence):
+class SimpleEvalSequence(tf.keras.utils.Sequence):
+    """Does 1-vs-all validation: each time all (weighted) background is used for a mA"""
+    
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
-                 features: list, delta=50, balance_signal=True, seed=utils.SEED):
-        self.sig = signal[features + ['mA', 'type']]
-        self.bkg = background[features + ['mA', 'type']].values
+                 features: list, weight_column='weight', seed=utils.SEED,
+                 sample_mass=True, normalize_signal_weights=False, **kwargs):
+        assert batch_size >= 1
         
-        self.mass = sorted(self.sig['mA'].unique())
-        self.gen = utils.get_random_generator(seed)   # "fast" random generator for `np.random.choice`
+        columns = features + ['mA', 'type']
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        
+        if isinstance(weight_column, str):
+            assert (weight_column in signal) and (weight_column in background)
+            self.should_weight = True
 
-        self.should_balance = bool(balance_signal)
-        self.bkg_batch = batch_size // 2
-        
-        if self.should_balance:
-            self.sig_batch = (batch_size / 2) // len(self.signals.keys())
-            self.signals = {m: self.sig[self.sig['mA'] == m].values for m in self.mass}
+            columns += [weight_column]
+
+            self.indices = {k: idx - 1 for k, idx in self.indices.items()}  # decrease index by "-1"
+            self.indices['weight'] = -1  # add new index for sample-weights
         else:
-            self.sig = self.sig.values
-            self.sig_batch = batch_size // 2
+            self.should_weight = False
+
+        self.gen = utils.get_random_generator(seed)
+        self.batch_size = int(batch_size)
+        self.should_sample_mass = bool(sample_mass)
+
+        self.mass = np.sort(signal['mA'].unique())
+        self.data = np.concatenate([signal[columns].values, 
+                                    background[columns].values], axis=0)
+        self.gen.shuffle(self.data)
+
+        # sample some datapoints if last batch is not full
+        remaining_samples = len(self.data) % self.batch_size
+
+        if remaining_samples > 0:
+            samples = self.gen.choice(self.data, size=remaining_samples)
+            self.data = np.concatenate([self.data, samples], axis=0)
+        
+        if bool(normalize_signal_weights):
+            self._normalize_signal_weights()
     
     def __len__(self):
-        return self.sig.shape[0] // self.bkg_batch  # bkg_batch = half batch-size
-    
-    def __getitem__(self, idx):
-        if self.should_balance:
-            z = [np_sample(sig, amount=self.sig_batch, generator=self.gen) for sig in self.signals.values()]
-        else:
-            z = [np_sample(self.sig, amount=self.sig_batch, generator=self.gen)]
-        
-        z.append(np_sample(self.bkg, amount=self.bkg_batch, generator=self.gen))
-        
-        z = np.concatenate(z, axis=0)
-        
-        x = z[:, :-2]
-        m = z[:, -2]
-        y = z[:, -1]
-        
-        # sample mass (from signal's mA) for background events
-        mask = y == 0.0
-        m[mask] = self.gen.choice(self.mass, size=np.sum(mask), replace=True)
+        return self.data.shape[0] // self.batch_size
 
-        m = np.reshape(m, newshape=(-1, 1))
-        y = np.reshape(y, newshape=(-1, 1))
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        stop_idx = start_idx + self.batch_size
+
+        z = self.data[start_idx:stop_idx]
+
+        # split data (features, mass, label, dimuon_mass, weight)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']].reshape(-1, 1)
+        y = z[:, self.indices['label']].reshape(-1, 1)
+        
+        # sample mA for background
+        if self.should_sample_mass:
+            mask = y == 0.0
+            m[mask] = self.gen.choice(self.mass, size=np.sum(mask), replace=True)
+        
+        if self.should_weight:
+            w = z[:, self.indices['weight']]
+            return dict(x=x, m=m), y, w.reshape(-1, 1)
         
         return dict(x=x, m=m), y
 
+    def to_tf_dataset(self):
+        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
+    
+    def _normalize_signal_weights(self):
+        if self.should_weight:
+            s_mask = self.data[:, self.indices['label']] == 1.0
+            b_mask = self.data[:, self.indices['label']] == 0.0
+
+            w_b = self.data[b_mask][:, self.indices['weight']]
+            w_s = np.sum(w_b) / np.sum(s_mask)
+
+            self.data[s_mask][:, self.indices['weight']] = w_s
+
+            
+class EvalSequence(SimpleEvalSequence):
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, intervals: list, 
+                 batch_size: int, features: list, weight_column=None, seed=utils.SEED, 
+                 normalize_signal_weights=False, **kwargs):
+        assert isinstance(intervals, (list, np.ndarray))
+        assert batch_size >= 1
+
+        columns = features + ['mA', 'type']
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        
+        sig = signal
+        bkg = background
+
+        if isinstance(weight_column, str):
+            assert (weight_column in sig) and (weight_column in bkg)
+            self.should_weight = True
+
+            columns += [weight_column]
+
+            self.indices = {k: idx - 1 for k, idx in self.indices.items()}  # decrease index by "-1"
+            self.indices['weight'] = -1  # add new index for sample-weights
+        else:
+            self.should_weight = False
+
+        self.gen = utils.get_random_generator(seed)
+        self.batch_size = int(batch_size)
+
+        self.mass = np.sort(sig['mA'].unique())
+        assert len(self.mass) == len(intervals)
+
+        # select data
+        self.data = []
+        count = 0
+
+        for mass, (low, up) in zip(self.mass, intervals):
+            s = sig[sig['mA'] == mass][columns]
+            b = bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)][columns]
+
+            self.data.append(s.values)
+
+            # set mA for corresponding background (in interval)
+            b_values = b.values
+            b_values[:, self.indices['mass']] = mass
+
+            self.data.append(b_values)
+
+            count += s.shape[0] + b.shape[0]
+
+        self.data = np.concatenate(self.data, axis=0)
+        self.gen.shuffle(self.data)
+
+        # sample some datapoints if last batch is not full
+        remaining_samples = count % self.batch_size
+
+        if remaining_samples > 0:
+            samples = self.gen.choice(self.data, size=remaining_samples)
+            self.data = np.concatenate([self.data, samples], axis=0)
+        
+        if bool(normalize_signal_weights):
+            self._normalize_signal_weights()
+
+
+class AbstractSequence(tf.keras.utils.Sequence):
+    """Base class for custom tf.keras.Sequence"""
+    
+    def __init__(self, *args, seed=utils.SEED, **kwargs):
+        self.should_weight = False
+        
+        self.seed = seed
+        self.gen = utils.get_random_generator(seed)
+    
+    def to_tf_dataset(self):
+        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
+    
     @classmethod
-    def get_data(cls, dataset: Dataset, features: list, train_batch=128, eval_batch=1024, **kwargs):
+    def get_data(cls, dataset, train_batch=1024, eval_batch=1024, eval_cls=SimpleEvalSequence,
+                 **kwargs):
         # split data
-        train, valid, test = train_val_test_split(dataset, **kwargs)
+        train, valid = train_valid_split(dataset, seed=kwargs.get('seed', utils.SEED))
         
         # create sequences
-        train_seq = cls(signal=train[0], background=train[1], batch_size=train_batch, features=features)
-
-        valid_seq = cls(signal=valid[0], background=valid[1], batch_size=eval_batch,
-                        features=features, balance_signal=False)
-
-        test_seq = cls(signal=test[0], background=test[1], batch_size=eval_batch, 
-                       features=features, balance_signal=False)
+        features = kwargs.pop('features', dataset.columns['feature'])
         
-        # create tf.Datasets
-        train_ds = utils.dataset_from_sequence(train_seq)
-        valid_ds = utils.dataset_from_sequence(valid_seq)
-        test_ds = utils.dataset_from_sequence(test_seq)
+        train_seq = cls(signal=train[0], background=train[1], batch_size=int(train_batch),
+                        features=features, **kwargs)
         
-        return train_ds, valid_ds, test_ds
+        valid_seq = eval_cls(signal=valid[0], background=valid[1], features=features,
+                             batch_size=int(eval_batch), **kwargs)
+        # return tf.Datasets
+        return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]
 
 
-class BalancedSequence(tf.keras.utils.Sequence):
+class OneVsAllSequence(AbstractSequence):
+    """Implements the '1-vs-all' mA sampling strategy for 'same' distribution"""
+    
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
+                 features: list, **kwargs):
+        super().__init__(**kwargs)
+        
+        s = signal[features + ['mA', 'type']]
+        b = background[features + ['mA', 'type']]
+        
+        self.mass = np.sort(s['mA'].unique())
+        self.batch_size = int(batch_size)
+        
+        self.data = np.concatenate([s.values, b.values], axis=0)
+        self.gen.shuffle(self.data)
+        
+    def __len__(self):
+        return len(self.data) // self.batch_size
+    
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        stop_idx = start_idx + self.batch_size
+
+        z = self.data[start_idx:stop_idx]
+
+        # split data (features, mA, label)
+        x = z[:, :-2]
+        m = z[:, -2].reshape(-1, 1)
+        y = z[:, -1].reshape(-1, 1)
+        
+        # sample mA for background (1-vs-all)
+        mask = y == 0.0
+        m[mask] = self.gen.choice(self.mass, size=np.sum(mask), replace=True)
+        
+        return dict(x=x, m=m), y
+
+    
+class IntervalSequence(EvalSequence, AbstractSequence):
+    """Implements mA assignment based on given `intervals`"""
+    pass
+
+
+class BalancedSequence(AbstractSequence):
     """keras.Sequence that balances the signal (each mA has the same number of events), and backgrounds"""
 
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
                  features: list, balance_signal=True, balance_bkg=True, seed=utils.SEED,
                  sample_mass=False, bins: list = None):
+        super().__init__()
+        
         # select data
         self.sig = signal[features + ['mA', 'type', 'dimuon_mass']]
         self.names = background['name']
@@ -238,116 +368,15 @@ class BalancedSequence(tf.keras.utils.Sequence):
 
         return dict(x=x, m=m), y
 
-    @classmethod
-    def get_data(cls, dataset: Dataset, features: list, case: int, train_batch=128, eval_batch=1024, bins=None,
-                 **kwargs):
-        # split data
-        train, valid, test = train_val_test_split(dataset, **kwargs)
-        
-        # create sequences
-        train_seq = cls(signal=train[0], background=train[1], batch_size=train_batch, 
-                        features=features, sample_mass=case == 1, bins=bins)
 
-        valid_seq = cls(signal=valid[0], background=valid[1], batch_size=eval_batch, bins=bins,
-                        features=features, balance_signal=False, balance_bkg=False, sample_mass=False)
-
-        test_seq = cls(signal=test[0], background=test[1], batch_size=eval_batch, bins=bins,
-                       features=features, balance_signal=False, balance_bkg=False, sample_mass=False)
-        
-        # create tf.Datasets
-        train_ds = utils.dataset_from_sequence(train_seq)
-        valid_ds = utils.dataset_from_sequence(valid_seq)
-        test_ds = utils.dataset_from_sequence(test_seq)
-        
-        return train_ds, valid_ds, test_ds
-
-
-class EvalSequence(tf.keras.utils.Sequence):
-    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, intervals: list, batch_size: int, 
-                 features: list, weight_column=None, seed=utils.SEED):
-        assert isinstance(intervals, (list, np.ndarray))
-        assert batch_size >= 1
-
-        columns = features + ['mA', 'type']
-        self.indices = {'features': -2, 'mass': -2, 'label': -1}
-        
-        sig = signal
-        bkg = background
-
-        if isinstance(weight_column, str):
-            assert (weight_column in sig) and (weight_column in bkg)
-            self.should_weight = True
-
-            columns += [weight_column]
-
-            self.indices = {k: idx - 1 for k, idx in self.indices.items()}  # decrease index by "-1"
-            self.indices['weight'] = -1  # add new index for sample-weights
-        else:
-            self.should_weight = False
-
-        self.gen = utils.get_random_generator(seed)
-        self.batch_size = int(batch_size)
-
-        self.mass = np.sort(sig['mA'].unique())
-        assert len(self.mass) == len(intervals)
-
-        # select data
-        self.data = []
-        count = 0
-
-        for mass, (low, up) in zip(self.mass, intervals):
-            s = sig[sig['mA'] == mass][columns]
-            b = bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)][columns]
-
-            self.data.append(s.values)
-
-            # set mA for corresponding background (in interval)
-            b_values = b.values
-            b_values[:, self.indices['mass']] = mass
-
-            self.data.append(b_values)
-
-            count += s.shape[0] + b.shape[0]
-
-        self.data = np.concatenate(self.data, axis=0)
-        self.gen.shuffle(self.data)
-
-        # sample some datapoints if last batch is not full
-        remaining_samples = count % self.batch_size
-
-        if remaining_samples > 0:
-            samples = self.gen.choice(self.data, size=remaining_samples)
-            self.data = np.concatenate([self.data, samples], axis=0)
-
-    def __len__(self):
-        return self.data.shape[0] // self.batch_size
-
-    def __getitem__(self, idx):
-        start_idx = idx * self.batch_size
-        stop_idx = start_idx + self.batch_size
-
-        z = self.data[start_idx:stop_idx]
-
-        # split data (features, mass, label, dimuon_mass, weight)
-        x = z[:, :self.indices['features']]
-        m = z[:, self.indices['mass']].reshape(-1, 1)
-        y = z[:, self.indices['label']].reshape(-1, 1)
-        
-        if self.should_weight:
-            w = z[:, self.indices['weight']]
-            return dict(x=x, m=m), y, w.reshape(-1, 1)
-        
-        return dict(x=x, m=m), y
-
-    def to_tf_dataset(self):
-        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
-
-
-class MassBalancedSequence(tf.keras.utils.Sequence):
+class MassBalancedSequence(AbstractSequence):
     """tf.keras.Sequence with balanced batches for each mass"""
     
-    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, features: list,
-                 delta=50, balance=True, weight_column=None, sample_mass=False, seed=utils.SEED, intervals=None):
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
+                 features: list, delta=50, balance=True, weight_column=None, sample_mass=False,
+                 intervals: list = None, **kwargs):
+        super().__init__(**kwargs)
+        
         columns = features + ['mA', 'type', 'dimuon_mass']
         self.indices = {'features': -3, 'mass': -3, 'label': -2, 'dimuon_mass': -1}
         
@@ -386,7 +415,6 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
                                             self.mass + deltas[:, 1]], axis=-1)
         else:
             self.mass_intervals = np.array(intervals)
-            # self.deltas = np.abs(self.mass_intervals - self.mass[:, np.newaxis])
 
         # considered bins (mass_intervals) may contain more than one mass; so sample them, if so
         buckets = []
@@ -403,11 +431,7 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         self.binned_mass = np.array(buckets)
 
         # make sure to take all the remaining events
-        # self.deltas = self.deltas.astype(np.float32)
         self.mass_intervals = self.mass_intervals.astype(np.float32)
-
-        # self.deltas[0][0] = np.inf
-        # self.deltas[-1][1] = np.inf  
 
         self.mass_intervals[0][0] = min(sig['dimuon_mass'].min(), bkg['dimuon_mass'].min()) - 1.0
         self.mass_intervals[-1][1] = max(sig['dimuon_mass'].max(), bkg['dimuon_mass'].max()) + 1.0
@@ -415,7 +439,6 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
         self.should_balance = bool(balance)
         self.should_sample_mass = bool(sample_mass)
         
-        self.gen = utils.get_random_generator(seed)
         self.num_batches = (sig.shape[0] + bkg.shape[0]) // batch_size
         
         if self.should_balance:
@@ -504,109 +527,131 @@ class MassBalancedSequence(tf.keras.utils.Sequence):
             return dict(x=x, m=m), y, w
         
         return dict(x=x, m=m), y
-
-    def to_tf_dataset(self):
-        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
-
-    @classmethod
-    def get_data(cls, dataset: Dataset, case: int, train_batch=128, eval_batch=1024, 
-                 num_splits=2, **kwargs):
-        assert num_splits in [2, 3]
-
-        # split data
-        if num_splits == 2:
-            splits = train_valid_split(dataset)
-        else:
-            splits = train_val_test_split(dataset)
-        
-        # create sequences
-        sequences = []
-        features = kwargs.pop('features', dataset.columns['feature'])
-
-        for i, (sig, bkg) in enumerate(splits):
-            if i == 0:
-                # assume training split is at first index
-                seq = cls(signal=sig, background=bkg, batch_size=train_batch, sample_mass=case == 1,
-                          features=features, balance=True, **kwargs)
-            else:
-                seq = EvalSequence(signal=sig, background=bkg, batch_size=eval_batch, features=features, **kwargs)
-            
-            sequences.append(seq)
-        
-        # return tf.Datasets
-        return [seq.to_tf_dataset() for seq in sequences]
-
-
-class SingleBalancedSequence(tf.keras.utils.Sequence):
-    """Balanced tf.keras.Sequence for individual NNs trained only on one mass"""
-
-    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, mass: float, batch_size: int, 
-                 case: int, features: list, delta=50, balance=True, seed=utils.SEED):
-        
-        self.should_balance = bool(balance)
-        
-        sig = signal[signal['mA'] == mass]
-        bkg = background
-        
-        # case
-        if case == 1:
-            # random flat background
-            pass
-        else:
-            # case 2: bkg centered around mass in dimuon_mass
-            bkg = bkg[(bkg['dimuon_mass'] > mass - delta) & (bkg['dimuon_mass'] < mass + delta)]
-        
-        self.sig = sig[features + ['mA', 'type']]
-        self.names = bkg['name']
-        self.bkg = bkg[features + ['mA', 'type']]
-
-        self.gen = utils.get_random_generator(seed)
-        self.mass = float(mass)
-        self.sig_batch = batch_size // 2
-
-        if self.should_balance:
-            self.bkg = {k: self.bkg[self.names == k].values for k in self.names.unique()}
-            self.bkg_batch = self.sig_batch // len(self.bkg.keys())
-        else:
-            self.bkg_batch = batch_size // 2
     
+    
+class FullBalancedSequence(MassBalancedSequence):
+    pass    
+    
+
+class UniformSequence(AbstractSequence):
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
+                 features: list, **kwargs):
+        assert batch_size >= 1
+        super().__init__(**kwargs)
+        
+        columns = features + ['mA', 'type']
+
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        self.batch_size = int(batch_size)
+
+        self.mass = np.sort(signal['mA'].unique())
+        self.mass_interval = (self.mass.min(), self.mass.max())
+
+        # select data
+        self.data = np.concatenate([signal[columns].values, 
+                                    background[columns].values], axis=0)
+        self.gen.shuffle(self.data)
+
+        # sample some datapoints if last batch is not full
+        remaining_samples = len(self.data) % self.batch_size
+
+        if remaining_samples > 0:
+            samples = self.gen.choice(self.data, size=remaining_samples)
+            self.data = np.concatenate([self.data, samples], axis=0)
+
     def __len__(self):
-        return self.sig.shape[0] // self.sig_batch
-    
-    def __getitem__(self, idx):
-        if self.should_balance:
-            z = [np_sample(bkg, amount=self.bkg_batch, generator=self.gen) for bkg in self.bkg.values()]
-        else:
-            z = [np_sample(self.bkg, amount=self.bkg_batch, generator=self.gen)]
-        
-        z.append(np_sample(self.sig, amount=self.sig_batch, generator=self.gen))
-        z = np.concatenate(z, axis=0)
-        
-        # split data
-        x = z[:, :-2]
-        m = np.reshape(np.ones_like(z[:, -2]) * self.mass, newshape=(-1, 1))
-        y = np.reshape(z[:, -1], newshape=(-1, 1))
+        return self.data.shape[0] // self.batch_size
 
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        stop_idx = start_idx + self.batch_size
+
+        z = self.data[start_idx:stop_idx]
+
+        # split data (features, mass, label, dimuon_mass, weight)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']].reshape(-1, 1)
+        y = z[:, self.indices['label']].reshape(-1, 1)
+        
+        # sample mA for background
+        mask = y == 0.0
+        m[mask] = self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1],
+                                   size=np.sum(mask))
+        
         return dict(x=x, m=m), y
 
-    @classmethod
-    def get_data(cls, dataset: Dataset, features: list, mass: float, case: int, train_batch=128, eval_batch=1024, **kwargs):
-        # split data
-        train, valid, test = train_val_test_split(dataset, **kwargs)
-        
-        # create sequences
-        train_seq = cls(signal=train[0], background=train[1], mass=mass, case=case, batch_size=train_batch,
-                        features=features, balance=True)
 
-        valid_seq = cls(signal=valid[0], background=valid[1], mass=mass, case=case, batch_size=eval_batch,
-                        features=features, balance=False)
+class BalancedUniformSequence(AbstractSequence):
+    """tf.keras.Sequence with balanced batches for each mass"""
+    
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
+                 features: list, balance_signal=True, balance_bkg=True, sample_mass=False,
+                 **kwargs):
+        super().__init__(**kwargs)
+        
+        columns = features + ['mA', 'type']
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        
+        s = signal
+        b = background
+        
+        self.mass = np.sort(signal['mA'].unique())
+        self.mass_interval = (self.mass.min(), self.mass.max())
 
-        test_seq = cls(signal=test[0], background=test[1], mass=mass, case=case, batch_size=eval_batch, 
-                       features=features, balance=False)
+        self.should_sample_mass = bool(sample_mass)
+        self.should_balance_signal = bool(balance_signal)
+        self.should_balance_background = bool(balance_bkg)
         
-        # create tf.Datasets
-        train_ds = utils.dataset_from_sequence(train_seq)
-        valid_ds = utils.dataset_from_sequence(valid_seq)
-        test_ds = utils.dataset_from_sequence(test_seq)
+        # signal mA balancing
+        if self.should_balance_signal: 
+            self.sig_batch = (batch_size / 2) // len(self.mass)
+            self.signals = {m: s[s['mA'] == m][columns].values for m in self.mass}
+            
+            batch_size = len(self.mass) * self.sig_batch
+        else:
+            batch_size = batch_size // 2
+            
+            self.sig_batch = batch_size // 2
+            self.signals = {0: signal[columns].values}  # all signal ("0" is a placeholder for key)
         
-        return train_ds, valid_ds, test_ds
+        # background-process balancing
+        if self.should_balance_background:
+            processes = b['name'].unique()
+            
+            self.bkg_batch = (batch_size / 2) // len(processes)
+            self.bkgs = {name: b[b['name'] == name][columns].values for name in processes}
+            
+            batch_size += len(processes) * self.bkg_batch
+        else:
+            batch_size += batch_size // 2
+            
+            self.bkg_batch = batch_size // 2
+            self.bkgs = {0: background[columns].values}  # all background
+        
+        self.num_batches = int((s.shape[0] + b.shape[0]) / batch_size)
+
+    def __len__(self):
+        return self.num_batches
+    
+    def __getitem__(self, idx):
+        # balanced sampling
+        z = [np_sample(s, amount=self.sig_batch, generator=self.gen) for s in self.signals.values()]
+        z += [np_sample(b, amount=self.bkg_batch, generator=self.gen) for b in self.bkgs.values()]
+        
+        z = np.concatenate(z, axis=0)
+        
+        # split data (features, mass, label)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']]
+        y = z[:, self.indices['label']]
+        
+        if self.should_sample_mass:
+            # sample mass uniformly within mA range
+            mask = y == 0.0
+            m[mask] = self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1],
+                                       size=np.sum(mask))
+    
+        m = np.reshape(m, newshape=(-1, 1))
+        y = np.reshape(y, newshape=(-1, 1))
+
+        return dict(x=x, m=m), y

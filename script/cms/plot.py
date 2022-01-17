@@ -6,6 +6,8 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib as mpl
+import mplhep
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_recall_curve, roc_curve, average_precision_score, roc_auc_score
@@ -22,8 +24,36 @@ PALETTE = {'DY': 'green', 'TTbar': 'red', 'ST': 'blue', 'diboson': 'yellow',
            'ZMM': 'purple', 'signal': 'black'}
 
 
+def set_style(style=mplhep.style.LHCb2, dpi=100, **kwargs):
+    """Sets the default style for plots.
+        https://matplotlib.org/stable/tutorials/introductory/customizing.html#the-default-matplotlibrc-file
+    """
+    # reset old style
+    mplhep.style.use(None)
+    
+    # use style from experiment
+    mplhep.style.use(style)
+    
+    # further customization
+    mpl.rcParams['lines.linewidth'] = 2.5
+    mpl.rcParams['lines.markersize'] = 10
+    mpl.rcParams['font.size'] = 12
+    mpl.rcParams['axes.grid'] = True
+    mpl.rcParams['grid.linestyle'] = 'dashed'
+    # mpl.rcParams['axes.xmargin'] = .075
+    # mpl.rcParams['axes.ymargin'] = .075
+    mpl.rcParams['legend.frameon'] = True
+    mpl.rcParams['legend.framealpha'] = 1
+    mpl.rcParams['figure.figsize'] = (12, 10)
+    mpl.rcParams['figure.autolayout'] = True
+    mpl.rcParams['figure.dpi'] = dpi
+    
+    for k, v in kwargs.items():
+        mpl.rcParams[k] = v
+
+
 def significance(model, dataset: Dataset, mass: int, title='', interval=50, digits=4,
-                 bins=20, size=(12, 10), legend='best', name='Model', palette=PALETTE, signal_in_interval=False,
+                 bins=50, size=(12, 10), legend='best', name='Model', palette=PALETTE, signal_in_interval=False,
                  path='plot', save=None, show=True, ax=None, weight_column='weight', ratio=False):
     """Plots the output distribution of the model, along it's weighted significance"""
     if ax is None:
@@ -144,7 +174,7 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     return np.max(ams), cuts[k]
 
 
-def _compute_significance(model, dataset: Dataset, bins=20, weight_column='weight',
+def _compute_significance(model, dataset: Dataset, bins=50, weight_column='weight',
                           signal_in_interval=False, intervals: list = None):
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
@@ -225,8 +255,8 @@ def compare_significance(models_and_data: dict, mass: float, *args, path='plot',
 
     
 def significance_vs_mass(dataset, models: dict, title='', weight_column='weight', xticks=None,
-                         bins=20, size=(10, 9), path='plot', save=None, ratio=False,
-                         signal_in_interval=False, intervals: list = None):
+                         bins=50, size=(12, 10), path='plot', save=None, ratio=False,
+                         signal_in_interval=False, intervals: list = None, legend='best'):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
@@ -286,12 +316,12 @@ def significance_vs_mass(dataset, models: dict, title='', weight_column='weight'
     axes[0].set_xlabel('Mass (GeV)')
     axes[0].set_ylabel('Significance / Max Significance' if ratio else r'Significance: $s/\sqrt{s + b}$')
     axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
-    axes[0].legend(loc='best')
+    axes[0].legend(loc=legend)
     
     axes[1].set_xlabel('Mass (GeV)')
     axes[1].set_ylabel('Best Cut')
     axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA')
-    axes[1].legend(loc='best')
+    axes[1].legend(loc=legend)
     
     fig.tight_layout()
     
@@ -560,12 +590,8 @@ def auc_vs_mass(dataset, models: dict, intervals: list = None, size=(12, 10), di
     for k, v in auc.items():
         ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
     
-    if which.upper() == 'ROC':
-        ax.set_xlabel('Background Efficiency (False Positive Rate)')
-        ax.set_ylabel('Signal Efficienty (True Positive Rate)')
-    else:
-        ax.set_xlabel('Signal Efficiency (Recall)')
-        ax.set_ylabel('Purity (Precision)')
+    ax.set_xlabel('mA (GeV)')
+    ax.set_ylabel('AUC')
         
     ax.legend(loc='best')
     

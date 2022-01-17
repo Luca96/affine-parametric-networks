@@ -156,32 +156,10 @@ def plot_model(model: tf.keras.Model, show_shapes=False, layer_names=True, rankd
                                      expand_nested=expand_nested, dpi=dpi, **kwargs)
 
 
-def get_dataset(dataset, split: str, batch_size: int, sample_weights=False, **kwargs):
-    from script.datasets import FairDataset, DataSequence
-    assert isinstance(dataset, FairDataset)
-    
-    sequence = DataSequence(dataset, batch_size=batch_size, split=split.lower(), **kwargs)
-    
-    def gen():    
-        for i in range(len(sequence)):
-            yield sequence[0]
-    
-    if sample_weights:
-        # {features, mass}, label, sample-weights
-        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32, tf.float32)
-    else:
-        # {features, mass}, label
-        out_types = ({'x': tf.float32, 'm': tf.float32}, tf.float32)
-
-    tf_data = tf.data.Dataset.from_generator(gen, output_types=out_types)
-    
-    return tf_data.prefetch(3)
-
-
 def dataset_from_sequence(sequence: tf.keras.utils.Sequence, sample_weights=False, prefetch=2):
     def gen():    
         for i in range(len(sequence)):
-            yield sequence[0]
+            yield sequence[i]
     
     if sample_weights:
         # {features, mass}, label, sample-weights
@@ -260,6 +238,7 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
                            SignificanceRatio(name='ams', **ams_args)])
 
     if isinstance(save, str):
+        model.save_path = save
         return model, get_checkpoint(path=save, monitor=monitor)
     
     return model

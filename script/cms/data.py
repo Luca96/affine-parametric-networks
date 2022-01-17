@@ -260,7 +260,11 @@ class OneVsAllSequence(AbstractSequence):
     
 class IntervalSequence(EvalSequence, AbstractSequence):
     """Implements mA assignment based on given `intervals`"""
-    pass
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.should_sample_mass = False
 
 
 class BalancedSequence(AbstractSequence):
@@ -530,8 +534,15 @@ class MassBalancedSequence(AbstractSequence):
     
     
 class FullBalancedSequence(MassBalancedSequence):
-    pass    
-    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        if not self.should_sample_mass:
+            # fixed mA distribution: so change bkg's mA with a value sampled from signal's mA
+            for m, bkg in self.bkgs.items():
+                for b in bkg.values():
+                    b[:, self.indices['mass']] = self.gen.choice(self.mass, size=len(b))
+
 
 class UniformSequence(AbstractSequence):
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 

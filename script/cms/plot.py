@@ -43,16 +43,16 @@ def set_style(style=mplhep.style.LHCb2, dpi=100, **kwargs):
     # mpl.rcParams['axes.xmargin'] = .075
     # mpl.rcParams['axes.ymargin'] = .075
     mpl.rcParams['legend.frameon'] = True
-    mpl.rcParams['legend.framealpha'] = 1
+    mpl.rcParams['legend.framealpha'] = 0.7
     mpl.rcParams['figure.figsize'] = (12, 10)
-    mpl.rcParams['figure.autolayout'] = True
+    mpl.rcParams['figure.autolayout'] = False
     mpl.rcParams['figure.dpi'] = dpi
     
     for k, v in kwargs.items():
         mpl.rcParams[k] = v
 
 
-def significance(model, dataset: Dataset, mass: int, title='', interval=50, digits=4,
+def significance(model, dataset: Dataset, mass: int, title='', interval=50, digits=3,
                  bins=50, size=(12, 10), legend='best', name='Model', palette=PALETTE, signal_in_interval=False,
                  path='plot', save=None, show=True, ax=None, weight_column='weight', ratio=False):
     """Plots the output distribution of the model, along it's weighted significance"""
@@ -96,9 +96,8 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     df = pd.DataFrame({'Output': y_bkg, 'Bkg': np.squeeze(names), 'weight': w_bkg})
     
     # plot histograms
-    sns.histplot(data=df, x='Output', hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5, bins=bins,
-                 weights='weight', ax=ax, binrange=(0.0, 1.0),
-                 palette=palette)
+    sns.histplot(data=df, x='Output', hue='Bkg', multiple='stack', edgecolor='.3', linewidth=0.5,
+                 bins=bins, weights='weight', ax=ax, binrange=(0.0, 1.0), palette=palette)
     
     h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
     h_bkg = np.sum(h_bkg)
@@ -152,6 +151,11 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     leg = ax.get_legend()
     ax.legend(loc='upper left')
     ax.add_artist(leg)
+    
+    # fix legend z-order issue due to `bx` axis
+    bx.set_zorder(1)
+    ax.set_zorder(2)
+    ax.set_facecolor((0, 0, 0, 0))
     
     ax.set_xlabel('Class Label Probability')
     ax.set_ylabel('Weighted Num. Events')
@@ -237,6 +241,10 @@ def _compute_significance(model, dataset: Dataset, bins=50, weight_column='weigh
     return np.max(ams, axis=-1), cuts[np.argmax(ams, axis=-1)]
 
 
+def get_significance(*args, **kwargs):
+    return _compute_significance(*args, **kwargs)
+
+
 def compare_significance(models_and_data: dict, mass: float, *args, path='plot', save=None, 
                          size=(12, 10), share_y=True, **kwargs):
     fig, axes = plt.subplots(nrows=1, ncols=len(models_and_data), sharey=bool(share_y))
@@ -254,9 +262,10 @@ def compare_significance(models_and_data: dict, mass: float, *args, path='plot',
     plt.show()
 
     
-def significance_vs_mass(dataset, models: dict, title='', weight_column='weight', xticks=None,
-                         bins=50, size=(12, 10), path='plot', save=None, ratio=False,
-                         signal_in_interval=False, intervals: list = None, legend='best'):
+def significance_vs_mass(dataset, models: dict, title='', weight_column='weight', xticks=None, pad=45,
+                         bins=50, size=(12, 10), path='plot', save=None, ratio=False, y_pad=0.06,
+                         signal_in_interval=False, intervals: list = None, legend='best', y_off=1.03, 
+                         digits=3, simple_legend=True, **kwargs):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
@@ -310,18 +319,45 @@ def significance_vs_mass(dataset, models: dict, title='', weight_column='weight'
     for key, ams_ in ams.items():
         cuts = cut[key]
         
-        axes[0].plot(xticks, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), 3)}')
-        axes[1].plot(xticks, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
+        axes[0].plot(xticks, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), digits)}')
+        axes[1].plot(xticks, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), digits)}')
         
-    axes[0].set_xlabel('Mass (GeV)')
+    axes[0].set_xlabel(r'$m_A$ (GeV)')
     axes[0].set_ylabel('Significance / Max Significance' if ratio else r'Significance: $s/\sqrt{s + b}$')
-    axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
-    axes[0].legend(loc=legend)
+    # axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
+    # axes[0].legend(loc=legend)
     
-    axes[1].set_xlabel('Mass (GeV)')
+    axes[1].set_xlabel(r'$m_A$ (GeV)')
     axes[1].set_ylabel('Best Cut')
-    axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA')
-    axes[1].legend(loc=legend)
+    # axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA')
+    # axes[1].legend(loc=legend) 
+    
+    # legend (https://www.python-graph-gallery.com/custom-legend-with-matplotlib)
+    num_cols = np.ceil(len(models) / 2).astype('int')
+    num_rows = len(models) // num_cols
+    
+    if simple_legend:
+        pad = 0
+
+        axes[0].legend(loc=legend)
+        axes[1].legend(loc=legend)
+    else:
+        axes[0].legend(loc='center left',  ncol=num_cols, borderaxespad=0, frameon=False,
+                       bbox_to_anchor=[0, y_off + y_pad * (num_rows - 1)])
+
+        axes[1].legend(loc='center left',  ncol=num_cols, borderaxespad=0, frameon=False,
+                       bbox_to_anchor=[0, y_off + y_pad * (num_rows - 1)])
+
+    # title
+    # axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA', pad=pad * num_rows)
+    # axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA', pad=pad * num_rows)
+    
+    if ratio:
+        axes[0].set_title('Significance Ratio vs mA', pad=pad * num_rows)
+    else:
+        axes[0].set_title('Significance vs mA', pad=pad * num_rows)
+        
+    axes[1].set_title('Best-Cut vs mA', pad=pad * num_rows)
     
     fig.tight_layout()
     
@@ -462,7 +498,7 @@ def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_col
     plt.show()
 
 
-def roc_auc(true, pred, weights, cut: float, eps=1e-4):
+def roc_auc(true, pred, weights, cut: float, eps=1e-4, **kwargs):
     fpr, tpr, t = roc_curve(true, pred, sample_weight=weights)
     auc = roc_auc_score(true, pred, average='micro', sample_weight=weights)
     
@@ -472,7 +508,7 @@ def roc_auc(true, pred, weights, cut: float, eps=1e-4):
     return fpr, tpr, auc, fpr[idx], tpr[idx]
 
 
-def pr_auc(true, pred, weights, cut: float, eps=1e-4):
+def pr_auc(true, pred, weights, cut: float, eps=1e-4, **kwargs):
     precision, recall, t = precision_recall_curve(true, pred, sample_weight=weights)
     auc = average_precision_score(true, pred, average='micro', sample_weight=weights)
     
@@ -520,8 +556,8 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
 
         fpr, tpr, auc, cut_fpr, cut_tpr = roc_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
     
-        ax.plot(fpr, tpr, label=f'AUC ({k}) {np.round(auc, digits)}')
-        ax.scatter(cut_fpr, cut_tpr, label=f'significance @ {round(cut, digits)}')
+        ax.plot(fpr, tpr, label=f'{k}: {np.round(auc, digits)} (AUC)')
+        ax.scatter(cut_fpr, cut_tpr, label=f'Significance @ {round(cut, digits)}')
     
     ax.set_xlabel('Background Efficiency (False Positive Rate)')
     ax.set_ylabel('Signal Efficienty (True Positive Rate)')
@@ -590,7 +626,7 @@ def auc_vs_mass(dataset, models: dict, intervals: list = None, size=(12, 10), di
     for k, v in auc.items():
         ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
     
-    ax.set_xlabel('mA (GeV)')
+    ax.set_xlabel(r'$m_A$ (GeV)')
     ax.set_ylabel('AUC')
         
     ax.legend(loc='best')
@@ -602,6 +638,50 @@ def auc_vs_mass(dataset, models: dict, intervals: list = None, size=(12, 10), di
     if should_show:
         plt.tight_layout()
         plt.show()
+    
+    return auc
+
+
+def get_curve_auc(dataset, model, intervals: list = None, weight_column='weight', 
+                  which='ROC', **kwargs):
+    """Computes the AUC of ROC/PR curve""" 
+    assert which.upper() in ['ROC', 'PR']
+    
+    sig = dataset.signal
+    bkg = dataset.background
+    
+    if which.upper() == 'ROC':
+        curve_fn = roc_auc
+        title = 'ROC-AUC'
+    else:
+        curve_fn = pr_auc
+        title = 'PR-AUC'
+    
+    if intervals is None:
+        intervals = dataset.mass_intervals
+    
+    mass = dataset.unique_signal_mass
+    auc = []
+    
+    for m, (low, up) in zip(mass, intervals):
+        s = sig[sig['mA'] == m]
+        b = bkg[(bkg['dimuon_mass'] > low) & (bkg['dimuon_mass'] < up)]
+
+        # prepare data
+        x = pd.concat([s[dataset.columns['feature']],
+                       b[dataset.columns['feature']]], axis=0).values
+
+        y = np.reshape(pd.concat([s['type'], b['type']], axis=0).values, newshape=[-1])
+        x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * m)
+
+        # predict data
+        out, _, w = _get_predictions_and_weights(model, x, y, s, b, 50, weight_column)
+        w = np.concatenate(w, axis=0)
+
+        _, _, m_auc, _, _ = curve_fn(true=y, pred=out, weights=w, cut=0.5, **kwargs)
+        auc.append(m_auc)
+    
+    return auc
 
 
 def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', interval=50.0, bins=20, signal_in_interval=False,
@@ -641,11 +721,11 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
         
         precision, recall, auc, cut_prec, cut_rec = pr_auc(true=y, pred=out, weights=w, cut=cut, **kwargs)
         
-        ax.plot(recall, precision, label=f'AUC ({k}) {np.round(auc, digits)}')
-        ax.scatter(cut_rec, cut_prec, label=f'significance @ {round(cut, digits)}')
+        ax.plot(recall, precision, label=f'{k}: {np.round(auc, digits)} (AUC)')
+        ax.scatter(cut_rec, cut_prec, label=f'Significance @ {round(cut, digits)}')
     
-    ax.set_xlabel('Recall (signal efficiency)')
-    ax.set_ylabel('Precision (purity)')
+    ax.set_xlabel('Recall (Signal Efficiency)')
+    ax.set_ylabel('Precision (Purity)')
     
     ax.legend(loc='lower left')
     

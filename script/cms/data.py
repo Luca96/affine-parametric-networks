@@ -304,15 +304,12 @@ class BalancedSequence(AbstractSequence):
 
             self.binned_mass = np.array(buckets)            
 
+        self.gen = utils.get_random_generator(seed)
+        self.half_batch = batch_size // 2
+        
         self.should_sample_mass = bool(sample_mass)
-        
-        self.gen = utils.get_random_generator(seed)   # "fast" random generator for `np.random.choice`
-        
         self.should_balance_sig = bool(balance_signal)
         self.should_balance_bkg = bool(balance_bkg)
-        
-        # self.features = features
-        self.half_batch = batch_size // 2
         
         if self.should_balance_sig:
             self.signals = {m: self.sig[self.sig['mA'] == m].values for m in self.mass}

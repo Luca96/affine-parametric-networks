@@ -75,6 +75,55 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, features
     return np.max(ams, axis=-1), cuts[np.argmax(ams, axis=-1)]
 
 
+def get_curve_auc(dataset: Hepmass, models: dict, bins=50, features=None, weight=True, 
+                  which='ROC', **kwargs):
+    """Plots the AUC of the ROC curve at each signal's mA""" 
+    assert which.upper() in ['ROC', 'PR']
+    
+    features, mA, label = _get_columns(dataset, features)
+    
+    sig = dataset.signal
+    bkg = dataset.background
+
+    if which.upper() == 'ROC':
+        curve_fn = cms.plot.roc_auc
+    else:
+        curve_fn = cms.plot.pr_auc
+    
+    mass = dataset.unique_signal_mass
+    auc = {k: [] for k in models.keys()}
+
+    wb = np.ones((bkg.shape[0],))  # weight for background
+
+    if weight:
+        wb /= len(mass)
+
+    b_values = bkg[features].values
+    b_labels = bkg[label]
+    
+    for name, model in models.items():
+        for m in mass:
+            # select data
+            s = sig[sig[mA] == m]
+                
+            # prepare data
+            x = np.concatenate([s[features].values, b_values], axis=0)
+            y = pd.concat([s[label], b_labels], axis=0).values.reshape([-1])
+            x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * m)
+    
+            # predict data
+            out, _ = _get_predictions(model, x, y)
+            
+            ws = np.ones((s.shape[0],))
+            w = np.concatenate([ws, wb], axis=0)
+
+            # compute curve AUC
+            _, _, m_auc, _, _ = curve_fn(true=y, pred=out, weights=w, cut=0.5, **kwargs)
+            auc[name].append(m_auc)
+    
+    return auc
+
+
 def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12, 10), ax=None,
                  legend='best', palette=PALETTE, path='plot', save=None, show=True, ratio=True,
                  weight=True, features=None, name='Model', all_bkg=True):
@@ -167,7 +216,7 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     return np.max(ams), cuts[k]
 
 
-def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(10, 9), path='plot', 
+def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10), path='plot', 
                          features=None, save=None, weight=True, ratio=True, all_bkg=True):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
@@ -234,13 +283,13 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(10, 9), 
         axes[0].plot(mass, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), 3)}')
         axes[1].plot(mass, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
         
-    axes[0].set_xlabel('Mass (GeV)')
+    axes[0].set_xlabel(r'$m_A$ (GeV)')
     axes[0].set_ylabel('Significance / Max Significance')
     axes[0].set_title(f'Comparison Significance vs mA [#bins = {bins}; weighted = {weight}]')
     axes[0].set_xticks(mass)
     axes[0].legend(loc='best')
     
-    axes[1].set_xlabel('Mass (GeV)')
+    axes[1].set_xlabel(r'$m_A$ (GeV)')
     axes[1].set_ylabel('Best Cut')
     axes[1].set_title(f'Comparison Best-Cut vs mA [#bins = {bins}; weighted = {weight}]')
     axes[1].set_xticks(mass)
@@ -253,6 +302,84 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(10, 9), 
         plt.savefig(os.path.join(path, f'{save}.png'), bbox_inches='tight')
     
     plt.show()
+
+
+def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='plot', 
+                features=None, save=None, ax=None, weight=True, which='ROC', digits=3, **kwargs):
+    """Plots the AUC of the ROC curve at each signal's mA""" 
+    assert which.upper() in ['ROC', 'PR']
+    
+    features, mA, label = _get_columns(dataset, features)
+    
+    sig = dataset.signal
+    bkg = dataset.background
+
+    if which.upper() == 'ROC':
+        curve_fn = cms.plot.roc_auc
+        title = 'ROC-AUC'
+    else:
+        curve_fn = cms.plot.pr_auc
+        title = 'PR-AUC'
+    
+    mass = dataset.unique_signal_mass
+    auc = {k: [] for k in models.keys()}
+
+    wb = np.ones((bkg.shape[0],))  # weight for background
+
+    if weight:
+        wb /= len(mass)
+
+    b_values = bkg[features].values
+    b_labels = bkg[label]
+    
+    for name, model in models.items():
+        for m in mass:
+            # select data
+            s = sig[sig[mA] == m]
+                
+            # prepare data
+            x = np.concatenate([s[features].values, b_values], axis=0)
+            y = pd.concat([s[label], b_labels], axis=0).values.reshape([-1])
+            x = dict(x=x, m=np.ones_like(y[:, np.newaxis]) * m)
+    
+            # predict data
+            out, _ = _get_predictions(model, x, y)
+            
+            ws = np.ones((s.shape[0],))
+            w = np.concatenate([ws, wb], axis=0)
+
+            # compute curve AUC
+            _, _, m_auc, _, _ = curve_fn(true=y, pred=out, weights=w, cut=0.5, **kwargs)
+            auc[name].append(m_auc)
+    
+    # plot
+    if ax is None:
+        plt.figure(figsize=size)
+        ax = plt.gca()
+
+        should_show = True
+    else:
+        should_show = False
+    
+    ax.set_title(f'{title}')
+    
+    for k, v in auc.items():
+        ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
+    
+    ax.set_xlabel('mA (GeV)')
+    ax.set_ylabel('AUC')
+        
+    ax.legend(loc='best')
+    
+    if isinstance(save, str):
+        path = utils.makedir(path)
+        plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
+    
+    if should_show:
+        plt.tight_layout()
+        plt.show()
+    
+    return auc
     
 
 def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digits=3,

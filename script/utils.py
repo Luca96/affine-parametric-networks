@@ -6,6 +6,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import scipy
 
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE, Isomap, SpectralEmbedding, LocallyLinearEmbedding
@@ -64,6 +65,25 @@ def tf_jensen_shannon_distance(p, q):
     jsd = tf_jensen_shannon_divergence(p, q)
     return tf.sqrt(tf.math.abs(jsd))
 
+
+def integral_area(x: list, y: list, degree=None, scale_x=False):
+    """First fits the given coordinates (`x`, `y`) with np.Polynomial, then integrates 
+       it to compute the area"""
+    assert len(x) == len(y)
+    
+    if scale_x:
+        x = x / np.max(x)
+    
+    domain = (np.min(x), np.max(x))
+    degree = len(y) - 1 if degree is None else int(degree)
+    
+    # fit curve to given (x, y) points
+    poly = np.polynomial.Polynomial.fit(x, y, deg=degree, domain=domain)
+    
+    # compute area by numerical integration
+    area, err = scipy.integrate.quad(poly, a=domain[0], b=domain[1])
+    return area, err, poly
+    
 
 def free_mem():
     return gc.collect()

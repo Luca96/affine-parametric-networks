@@ -227,3 +227,98 @@ class UniformSequence(BalancedSequence):
         y = np.reshape(y, newshape=(-1, 1))
 
         return dict(x=x, m=m), y
+
+
+class TrainingSequence(tf.keras.utils.Sequence):
+    """A simple training sequence for HEPMASS that allows sampling the mass feature"""
+
+    def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, columns: dict, batch_size: int,
+                 features: list, seed=utils.SEED, sample_mass=False, uniform_mass: tuple = None, **kwargs):
+        assert batch_size >= 1
+
+        # retrieve columns
+        mA = columns['mA']
+        columns = features + [mA, columns['label']]
+
+        self.indices = {'features': -2, 'mass': -2, 'label': -1}
+        self.batch_size = int(batch_size)
+        self.gen = utils.get_random_generator(seed)
+
+        self.should_sample_mass = bool(sample_mass)
+        self.should_sample_uniformly = isinstance(uniform_mass, tuple)
+        self.mass_range = uniform_mass
+
+        # mass & data
+        self.mass = np.sort(signal[mA].unique())
+        self.data = np.concatenate([signal[columns].values,
+                                    background[columns].values], axis=0)
+        self.gen.shuffle(self.data)
+
+        # sample some datapoints if last batch is not full
+        remaining_samples = len(self.data) % self.batch_size
+
+        if remaining_samples > 0:
+            samples = self.gen.choice(self.data, size=remaining_samples)
+            self.data = np.concatenate([self.data, samples], axis=0)
+
+        if self.should_sample_uniformly:
+            # assign uniform mA to background
+            mask = self.data[:, self.indices['label']] == 0
+
+            m = self.data[:, self.indices['mass']]
+            m[mask] = self.gen.uniform(low=self.mass_range[0], high=self.mass_range[1], 
+                                       size=np.sum(mask))
+
+            self.data[:, self.indices['mass']] = m
+            print(self.data[self.gen.choice(np.arange(len(self.data)), size=16), self.indices['mass']])
+
+    def __len__(self):
+        return len(self.data) // self.batch_size
+
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        stop_idx = start_idx + self.batch_size
+
+        z = self.data[start_idx:stop_idx]
+
+        # split data (features, mass, label)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']].reshape(-1, 1)
+        y = z[:, self.indices['label']].reshape(-1, 1)
+        
+        # sample mA for background
+        if self.should_sample_mass:
+            mask = y == 0.0
+
+            if self.should_sample_uniformly:
+                # uniform sampling
+                m[mask] = self.gen.uniform(low=self.mass_range[0], high=self.mass_range[1], size=np.sum(mask))
+            else:
+                # identical sampling
+                m[mask] = self.gen.choice(self.mass, size=np.sum(mask), replace=True)
+        
+        return dict(x=x, m=m), y
+
+    def to_tf_dataset(self):
+        return utils.dataset_from_sequence(self, sample_weights=False)
+
+    @classmethod
+    def get_data(cls, dataset, train_batch=1024, eval_batch=1024, **kwargs):
+        # split data
+        train, valid = train_valid_split(dataset, seed=kwargs.get('seed', utils.SEED))
+        
+        # create sequences
+        features = kwargs.pop('features', dataset.columns['feature'])
+        
+        train_seq = cls(signal=train[0], background=train[1], columns=dataset.columns, 
+                        batch_size=int(train_batch), features=features, **kwargs)
+        
+        kwargs.pop('sample_mass', None)
+        kwargs.pop('uniform_mass', None)
+
+        valid_seq = cls(signal=valid[0], background=valid[1], columns=dataset.columns, 
+                        batch_size=int(train_batch), features=features, sample_mass=False, 
+                        uniform_mass=None, **kwargs)
+
+        # return tf.Datasets
+        return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]

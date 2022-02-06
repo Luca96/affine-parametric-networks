@@ -20,7 +20,7 @@ from typing import Union
 PALETTE = {'signal': 'blue', 'bkg': 'red'}
 
 
-def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, features=None):
+def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=False, features=None):
     """Computes the significance and its best-cut for each mA"""
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
@@ -69,6 +69,10 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, features
             b_i = np.sum(b[i:])
 
             ams_.append(s_i / np.sqrt(s_i + b_i))
+
+        if ratio:
+            max_ams = len(y_s) / np.sqrt(len(y_s))
+            ams_ = np.array(ams_) / max_ams
 
         ams.append(ams_)
     
@@ -159,10 +163,10 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     
     # histograms
     ax.hist(y_s, bins=bins, alpha=0.55, label='signal', color=palette['signal'],
-            edgecolor=palette['signal'])
+            edgecolor=palette['signal'], histtype='step', linewidth=2, hatch='//')
     
-    ax.hist(y_b, bins=bins, alpha=0.7, label='bkg', color=palette['bkg'], hatch='//',
-            histtype='step', edgecolor=palette['bkg'], linewidth=2, weights=w_b)
+    ax.hist(y_b, bins=bins, alpha=0.7, label='bkg', color=palette['bkg'],
+            histtype='step', edgecolor=palette['bkg'],  weights=w_b)
     
     # compute significance
     cuts = np.linspace(0.0, 1.0, num=bins)
@@ -196,15 +200,17 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     else:
         bx.set_ylabel(r'Significance: $s / \sqrt{s+b}$')
     
-    ax.set_xlabel('Class Label Probability')
-    ax.set_ylabel('Num. Events')
     ax.legend(loc=legend)
+
+    ax.set_xlabel('Class Label Probability')
+    ax.set_ylabel('Weighted Count')
     
     # title
-    str1 = f'#bins = {bins}; weighted = {weight}'
-    str2 = f'{name} Output Distribution @ {int(mass)}mA, [{str1}]'
-    
-    ax.set_title(str2)
+    # str1 = f'#bins = {bins}; weighted = {weight}'
+    str1 = f'{name} Output @ {int(mass)}' + r'$m_A$'
+    str2 = f'# signal = {int(np.sum(s))}, # bkg = {len(dataset.background)}'
+
+    ax.set_title(f'{str1}\n{str2}')
     
     if isinstance(save, str):
         path = utils.makedir(path)
@@ -217,7 +223,7 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
 
 
 def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10), path='plot', 
-                         features=None, save=None, weight=True, ratio=True, all_bkg=True):
+                         features=None, save=None, weight=True, ratio=True, all_bkg=True, legend='best'):
     fig, axes = plt.subplots(nrows=1, ncols=2)
     
     fig.set_figwidth(size[0] * 2)
@@ -287,13 +293,13 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
     axes[0].set_ylabel('Significance / Max Significance')
     axes[0].set_title(f'Comparison Significance vs mA [#bins = {bins}; weighted = {weight}]')
     axes[0].set_xticks(mass)
-    axes[0].legend(loc='best')
+    axes[0].legend(loc=legend)
     
     axes[1].set_xlabel(r'$m_A$ (GeV)')
     axes[1].set_ylabel('Best Cut')
     axes[1].set_title(f'Comparison Best-Cut vs mA [#bins = {bins}; weighted = {weight}]')
     axes[1].set_xticks(mass)
-    axes[1].legend(loc='best')
+    axes[1].legend(loc=legend)
     
     fig.tight_layout()
     
@@ -304,7 +310,7 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
     plt.show()
 
 
-def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='plot', 
+def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='plot', legend='best',
                 features=None, save=None, ax=None, weight=True, which='ROC', digits=3, **kwargs):
     """Plots the AUC of the ROC curve at each signal's mA""" 
     assert which.upper() in ['ROC', 'PR']
@@ -366,10 +372,10 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     for k, v in auc.items():
         ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
     
-    ax.set_xlabel('mA (GeV)')
+    ax.set_xlabel(r'$m_A$ (GeV)')
     ax.set_ylabel('AUC')
         
-    ax.legend(loc='best')
+    ax.legend(loc=legend)
     
     if isinstance(save, str):
         path = utils.makedir(path)
@@ -421,11 +427,8 @@ def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digi
         fpr, tpr, auc, cut_fpr, cut_tpr = cms.plot.roc_auc(true=y, pred=out, weights=w, 
                                                            cut=cut, **kwargs)
     
-        ax.plot(fpr, tpr, label=f'AUC ({k}) {np.round(auc, digits)}')
-        ax.scatter(cut_fpr, cut_tpr, label=f'significance @ {round(cut, digits)}')
-        
-        # ax.axhline(y=cut_tpr, xmax=cut_fpr, linestyle='dashed')
-        # ax.axvline(x=cut_fpr, ymax=cut_tpr, linestyle='dashed')
+        ax.plot(fpr, tpr, label=f'{k}: {np.round(auc, digits)} (AUC)')
+        ax.scatter(cut_fpr, cut_tpr, label=f'Significance @ {round(cut, digits)}')
         
     ax.set_xlabel('Background Efficiency (False Positive Rate)')
     ax.set_ylabel('Signal Efficienty (True Positive Rate)')
@@ -479,8 +482,8 @@ def compare_pr(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digit
                                                                     weights=w, cut=cut, 
                                                                     **kwargs)
         
-        ax.plot(recall, precision, label=f'AUC ({k}) {np.round(auc, digits)}')
-        ax.scatter(cut_rec, cut_prec, label=f'significance @ {round(cut, digits)}')
+        ax.plot(recall, precision, label=f'{k}: {np.round(auc, digits)} (AUC)')
+        ax.scatter(cut_rec, cut_prec, label=f'Significance @ {round(cut, digits)}')
     
     ax.set_xlabel('Signal Efficiency (Recall)')
     ax.set_ylabel('Purity (Precision)')

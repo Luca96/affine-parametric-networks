@@ -39,9 +39,9 @@ def set_style(style=mplhep.style.LHCb2, dpi=100, **kwargs):
     mpl.rcParams['lines.markersize'] = 10
     mpl.rcParams['font.size'] = 12
     mpl.rcParams['axes.grid'] = True
+    mpl.rcParams['axes.axisbelow'] = True
     mpl.rcParams['grid.linestyle'] = 'dashed'
-    # mpl.rcParams['axes.xmargin'] = .075
-    # mpl.rcParams['axes.ymargin'] = .075
+    mpl.rcParams['grid.alpha'] = 0.65
     mpl.rcParams['legend.frameon'] = True
     mpl.rcParams['legend.framealpha'] = 0.7
     mpl.rcParams['figure.figsize'] = (12, 10)
@@ -818,7 +818,7 @@ def var_priori(dataset: Dataset, variables: list, mass: float, interval=50.0, si
 
 def var(dataset: Dataset, variable: str, size=(12, 10), legend='best', bins=25, y_scale=None,
         weight_column='weight', path='plot', save=None, min_limit=None, max_limit=None, 
-        palette=PALETTE):
+        palette=PALETTE, x_ticks=None):
     """Plots a single variable by considering all the data"""
     sig = dataset.signal
     bkg = dataset.background
@@ -866,7 +866,10 @@ def var(dataset: Dataset, variable: str, size=(12, 10), legend='best', bins=25, 
     
     if isinstance(y_scale, str):
         ax.set_yscale(y_scale)
-
+    
+    if x_ticks is not None:
+        ax.set_xticks(x_ticks)
+    
     fig.tight_layout()
     
     if isinstance(save, str):

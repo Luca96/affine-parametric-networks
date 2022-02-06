@@ -53,8 +53,9 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
     """Does 1-vs-all validation: each time all (weighted) background is used for a mA"""
     
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
-                 features: list, weight_column='weight', seed=utils.SEED,
-                 sample_mass=True, normalize_signal_weights=False, **kwargs):
+                 features: list, weight_column='weight', seed=utils.SEED, sample_mass=True, 
+                 normalize_signal_weights=False, sample_mass_initially=False, 
+                 replicate_bkg=False, **kwargs):
         assert batch_size >= 1
         
         columns = features + ['mA', 'type']
@@ -78,6 +79,11 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
         self.mass = np.sort(signal['mA'].unique())
         self.data = np.concatenate([signal[columns].values, 
                                     background[columns].values], axis=0)
+        
+        if replicate_bkg and self.should_sample_mass:
+            self.data = np.concatenate([self.data] + [background[columns].values] * (len(self.mass) - 1),
+                                       axis=0)
+        
         self.gen.shuffle(self.data)
 
         # sample some datapoints if last batch is not full
@@ -89,6 +95,11 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
         
         if bool(normalize_signal_weights):
             self._normalize_signal_weights()
+            
+        if bool(sample_mass_initially):
+            mask = self.data[:, self.indices['label']] == 0.0
+            self.data[mask][:, self.indices['mass']] = self.gen.uniform(low=self.mass.min(), 
+                                                                        high=self.mass.max(), size=np.sum(mask))
     
     def __len__(self):
         return self.data.shape[0] // self.batch_size
@@ -569,7 +580,10 @@ class UniformSequence(AbstractSequence):
 
     def __len__(self):
         return self.data.shape[0] // self.batch_size
-
+    
+    def _uniform_sample(self, amount: int):
+        return self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1], size=int(amount))
+    
     def __getitem__(self, idx):
         start_idx = idx * self.batch_size
         stop_idx = start_idx + self.batch_size
@@ -583,8 +597,7 @@ class UniformSequence(AbstractSequence):
         
         # sample mA for background
         mask = y == 0.0
-        m[mask] = self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1],
-                                   size=np.sum(mask))
+        m[mask] = self._uniform_sample(amount=np.sum(mask))
         
         return dict(x=x, m=m), y
 
@@ -594,7 +607,7 @@ class BalancedUniformSequence(AbstractSequence):
     
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
                  features: list, balance_signal=True, balance_bkg=True, sample_mass=False,
-                 **kwargs):
+                 initial_uniform_mass=False, **kwargs):
         super().__init__(**kwargs)
         
         columns = features + ['mA', 'type']
@@ -615,9 +628,9 @@ class BalancedUniformSequence(AbstractSequence):
             self.sig_batch = (batch_size / 2) // len(self.mass)
             self.signals = {m: s[s['mA'] == m][columns].values for m in self.mass}
             
-            batch_size = len(self.mass) * self.sig_batch
+            actual_batch = len(self.mass) * self.sig_batch
         else:
-            batch_size = batch_size // 2
+            actual_batch = batch_size // 2
             
             self.sig_batch = batch_size // 2
             self.signals = {0: signal[columns].values}  # all signal ("0" is a placeholder for key)
@@ -629,17 +642,24 @@ class BalancedUniformSequence(AbstractSequence):
             self.bkg_batch = (batch_size / 2) // len(processes)
             self.bkgs = {name: b[b['name'] == name][columns].values for name in processes}
             
-            batch_size += len(processes) * self.bkg_batch
+            actual_batch += len(processes) * self.bkg_batch
         else:
-            batch_size += batch_size // 2
+            actual_batch += batch_size // 2
             
             self.bkg_batch = batch_size // 2
             self.bkgs = {0: background[columns].values}  # all background
         
-        self.num_batches = int((s.shape[0] + b.shape[0]) / batch_size)
+        self.num_batches = int((s.shape[0] + b.shape[0]) / actual_batch)
+        
+        if bool(initial_uniform_mass):
+            for m, bkg in self.bkgs.items():
+                bkg[:, self.indices['mass']] = self._uniform_sample(amount=len(bkg))
 
     def __len__(self):
         return self.num_batches
+    
+    def _uniform_sample(self, amount: int):
+        return self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1], size=int(amount))
     
     def __getitem__(self, idx):
         # balanced sampling
@@ -656,8 +676,36 @@ class BalancedUniformSequence(AbstractSequence):
         if self.should_sample_mass:
             # sample mass uniformly within mA range
             mask = y == 0.0
-            m[mask] = self.gen.uniform(low=self.mass_interval[0], high=self.mass_interval[1],
-                                       size=np.sum(mask))
+            m[mask] = self._uniform_sample(amount=np.sum(mask))
+    
+        m = np.reshape(m, newshape=(-1, 1))
+        y = np.reshape(y, newshape=(-1, 1))
+
+        return dict(x=x, m=m), y
+
+class BalancedIdenticalSequence(BalancedUniformSequence):
+    """tf.keras.Sequence with balanced batches for each mass; identical mA distribution"""
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.pop('initial_uniform_mass', None)
+        super().__init__(*args, initial_uniform_mass=False, **kwargs)
+            
+    def __getitem__(self, idx):
+        # balanced sampling
+        z = [np_sample(s, amount=self.sig_batch, generator=self.gen) for s in self.signals.values()]
+        z += [np_sample(b, amount=self.bkg_batch, generator=self.gen) for b in self.bkgs.values()]
+        
+        z = np.concatenate(z, axis=0)
+        
+        # split data (features, mass, label)
+        x = z[:, :self.indices['features']]
+        m = z[:, self.indices['mass']]
+        y = z[:, self.indices['label']]
+        
+        if self.should_sample_mass:
+            # sample mass "identically" within mA range
+            mask = y == 0.0
+            m[mask] = self.gen.choice(self.mass, size=np.sum(mask))
     
         m = np.reshape(m, newshape=(-1, 1))
         y = np.reshape(y, newshape=(-1, 1))

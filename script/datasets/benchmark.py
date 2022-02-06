@@ -39,7 +39,6 @@ class Benchmark:
         (850, 950),
         (950, np.inf)])
     
-    # TODO: tune at beginning (shrink) and end (enlarge)
     INTERVALS = np.array([
         (100, 130),      # 110
         (115, 135),      # 120

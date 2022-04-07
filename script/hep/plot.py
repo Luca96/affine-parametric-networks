@@ -202,12 +202,17 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     
     ax.legend(loc=legend)
 
+    # fix legend z-order issue due to `bx` axis
+    bx.set_zorder(1)
+    ax.set_zorder(2)
+    ax.set_facecolor((0, 0, 0, 0))
+    
     ax.set_xlabel('Class Label Probability')
     ax.set_ylabel('Weighted Count')
     
     # title
     # str1 = f'#bins = {bins}; weighted = {weight}'
-    str1 = f'{name} Output @ {int(mass)}' + r'$m_A$'
+    str1 = f'{name} Output @ {int(mass)} GeV'
     str2 = f'# signal = {int(np.sum(s))}, # bkg = {len(dataset.background)}'
 
     ax.set_title(f'{str1}\n{str2}')
@@ -289,15 +294,15 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
         axes[0].plot(mass, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), 3)}')
         axes[1].plot(mass, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), 3)}')
         
-    axes[0].set_xlabel(r'$m_A$ (GeV)')
+    axes[0].set_xlabel('Mass (GeV)')
     axes[0].set_ylabel('Significance / Max Significance')
-    axes[0].set_title(f'Comparison Significance vs mA [#bins = {bins}; weighted = {weight}]')
+    axes[0].set_title(f'Comparison Significance vs Mass [#bins = {bins}; weighted = {weight}]')
     axes[0].set_xticks(mass)
     axes[0].legend(loc=legend)
     
-    axes[1].set_xlabel(r'$m_A$ (GeV)')
+    axes[1].set_xlabel('Mass (GeV)')
     axes[1].set_ylabel('Best Cut')
-    axes[1].set_title(f'Comparison Best-Cut vs mA [#bins = {bins}; weighted = {weight}]')
+    axes[1].set_title(f'Comparison Best-Cut vs Mass [#bins = {bins}; weighted = {weight}]')
     axes[1].set_xticks(mass)
     axes[1].legend(loc=legend)
     
@@ -372,7 +377,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     for k, v in auc.items():
         ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
     
-    ax.set_xlabel(r'$m_A$ (GeV)')
+    ax.set_xlabel('Mass (GeV)')
     ax.set_ylabel('AUC')
         
     ax.legend(loc=legend)
@@ -415,7 +420,7 @@ def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digi
     else:
         should_show = False
     
-    ax.set_title(f'ROC @ {int(mass)}mA')
+    ax.set_title(f'ROC @ {int(mass)} GeV')
 
     for k, (model, cut) in models_and_cuts.items():
         out, _ = _get_predictions(model, x, y)
@@ -469,7 +474,7 @@ def compare_pr(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digit
     else:
         should_show = False
     
-    ax.set_title(f'Precision-Recall Curve @ {int(mass)}mA')
+    ax.set_title(f'Precision-Recall Curve @ {int(mass)} GeV')
 
     for k, (model, cut) in models_and_cuts.items():
         out, _ = _get_predictions(model, x, y)

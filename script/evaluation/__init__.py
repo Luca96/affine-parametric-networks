@@ -320,9 +320,6 @@ def auc_mass_importance(model, dataset, auc_index: int, mass: list, mass_interva
 
 def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, ams_eq=2, size=4,
                       batch_size=512, **kwargs):
-    from script.datasets import Dataset
-    assert isinstance(dataset, Dataset)
-
     def safe_div(a, b):
         if b == 0.0:
             return 0.0
@@ -402,9 +399,9 @@ def plot_significance(model, dataset, bins=20, name='Model', sample_frac=None, a
 
 def plot_mass_reliance(model, dataset, auc=None, auc_index=2, name='pNN', size=(12, 10), 
                        legend='best', batch_size=1024, **kwargs):
-    from script.datasets import Hepmass,  Dataset, FairDataset
+    from script.datasets import Hepmass
 
-    if isinstance(dataset, (Hepmass, FairDataset)):
+    if isinstance(dataset, Hepmass):
         mass = dataset.unique_mass
     else:
         mass = dataset.current_mass_intervals
@@ -443,7 +440,7 @@ def plot_mass_reliance(model, dataset, auc=None, auc_index=2, name='pNN', size=(
 
     label = r'$m_{r}$' + f': {np.round(np.mean(metric), 1)}%'
 
-    if isinstance(dataset, (Hepmass, FairDataset)):
+    if isinstance(dataset, Hepmass):
         plt.plot(mass, metric, marker='o', label=label)
     else:
         plt.plot(dataset.unique_signal_mass, metric, marker='o', label=label)

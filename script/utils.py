@@ -232,7 +232,7 @@ def get_checkpoint(path: str, monitor='val_auc'):
 
 def get_compiled_model(cls, data_or_num_features, units: list = None, save: str = None, curve='ROC', **kwargs):
     from tensorflow.keras.metrics import AUC, Precision, Recall
-    from script.datasets import Hepmass, Dataset
+    from script.datasets import Hepmass
 
     opt = kwargs.pop('optimizer', {})
     lr = kwargs.pop('lr', 1e-3)
@@ -255,7 +255,8 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
     model.compile(lr=lr, **opt, **compile_args,
                   metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
                            Precision(name='precision'), Recall(name='recall'),
-                           SignificanceRatio(name='ams', **ams_args)])
+                           # SignificanceRatio(name='ams', **ams_args),
+                           ])
 
     if isinstance(save, str):
         model.save_path = save
@@ -320,7 +321,7 @@ def plot_mass_reliance(result: dict, data, size=(12, 9), loc='best'):
 
 
 def plot_model_distribution(model, dataset, bins=20, name='Model', sample_frac=None, size=24):
-    from script.datasets import Hepmass, Dataset
+    from script.datasets import Hepmass
 
     if isinstance(dataset, Hepmass):
         fig, axes = plt.subplots(ncols=3, nrows=2)
@@ -446,6 +447,6 @@ class SignificanceRatio(tf.keras.metrics.Metric):
         # return ratio
         return tf.reduce_max(ams) / max_ams
 
-    def reset_states(self):
+    def reset_state(self):
         self.s.assign(tf.zeros(shape=(self.bins,), dtype=tf.int32))
         self.b.assign(tf.zeros(shape=(self.bins,), dtype=tf.int32))

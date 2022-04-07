@@ -117,7 +117,6 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
 
     cuts = np.linspace(0.0, 1.0, num=bins)
     ams = []
-    # ams_max = (np.sum(sig_mask) * w_sig[0]) / np.sqrt(np.sum(sig_mask) * w_sig[0])
     ams_max = np.sum(w_sig) / np.sqrt(np.sum(w_sig))
     
     bx = ax.twinx()
@@ -163,7 +162,7 @@ def significance(model, dataset: Dataset, mass: int, title='', interval=50, digi
     # title
     str0 = f'{title} (#bins = {bins})'
     str1 = f'@{interval} dimuon_mass (bkg)'
-    str2 = f'{name} Output Distribution @ {int(mass)}mA, {str1}'
+    str2 = f'{name} Output Distribution @ {int(mass)} GeV, {str1}'
     str3 = f'# signal = {sig.shape[0]}, # bkg = {bkg.shape[0]}'
     
     ax.set_title(f'{str0}\n{str2}\n{str3}')
@@ -322,15 +321,11 @@ def significance_vs_mass(dataset, models: dict, title='', weight_column='weight'
         axes[0].plot(xticks, ams_, marker='o', label=f'{key}: {round(np.mean(ams_).item(), digits)}')
         axes[1].plot(xticks, cuts, marker='o', label=f'{key}: {round(np.mean(cuts).item(), digits)}')
         
-    axes[0].set_xlabel(r'$m_A$ (GeV)')
+    axes[0].set_xlabel('Mass (GeV)')
     axes[0].set_ylabel('Significance / Max Significance' if ratio else r'Significance: $s/\sqrt{s + b}$')
-    # axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA')
-    # axes[0].legend(loc=legend)
     
-    axes[1].set_xlabel(r'$m_A$ (GeV)')
+    axes[1].set_xlabel('Mass (GeV)')
     axes[1].set_ylabel('Best Cut')
-    # axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA')
-    # axes[1].legend(loc=legend) 
     
     # legend (https://www.python-graph-gallery.com/custom-legend-with-matplotlib)
     num_cols = np.ceil(len(models) / 2).astype('int')
@@ -349,15 +344,12 @@ def significance_vs_mass(dataset, models: dict, title='', weight_column='weight'
                        bbox_to_anchor=[0, y_off + y_pad * (num_rows - 1)])
 
     # title
-    # axes[0].set_title(f'{title}; #bins = {bins}\nComparison Significance vs mA', pad=pad * num_rows)
-    # axes[1].set_title(f'{title}; #bins = {bins}\nComparison Best-Cut vs mA', pad=pad * num_rows)
-    
     if ratio:
-        axes[0].set_title('Significance Ratio vs mA', pad=pad * num_rows)
+        axes[0].set_title('Significance Ratio vs Mass', pad=pad * num_rows)
     else:
-        axes[0].set_title('Significance vs mA', pad=pad * num_rows)
+        axes[0].set_title('Significance vs Mass', pad=pad * num_rows)
         
-    axes[1].set_title('Best-Cut vs mA', pad=pad * num_rows)
+    axes[1].set_title('Best-Cut vs Mass', pad=pad * num_rows)
     
     fig.tight_layout()
     
@@ -419,7 +411,7 @@ def cut(models_and_data, title='', bins=20, size=(12, 10), legend='best', name='
     
     # title
     str0 = f'{title} [#bins = {bins}]'
-    ax.set_title(f'[{name}] Best Cut vs mA ({str0})')
+    ax.set_title(f'[{name}] Best Cut vs Mass ({str0})')
     
     if isinstance(save, str):
         path = utils.makedir(path)
@@ -481,13 +473,13 @@ def curves(model, dataset: Dataset, mass: int, title='', interval=50, weight_col
     
     # PR-curve
     PrecisionRecallDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[0],
-                                            name=f'pNN @ {int(mass)}mA, {str1}')
-    axes[0].set_title(f'[pNN] PR Curve @ {int(mass)}mA ({title})')
+                                            name=f'pNN @ {int(mass)} GeV, {str1}')
+    axes[0].set_title(f'[pNN] PR Curve @ {int(mass)} GeV ({title})')
     
     # ROC curve
     RocCurveDisplay.from_predictions(y_true=y, y_pred=out, sample_weight=w, ax=axes[1],
-                                     name=f'pNN @ {int(mass)}mA, {str1}')
-    axes[1].set_title(f'[pNN] ROC Curve @ {int(mass)}mA ({title})')
+                                     name=f'pNN @ {int(mass)} GeV, {str1}')
+    axes[1].set_title(f'[pNN] ROC Curve @ {int(mass)} GeV ({title})')
     
     fig.tight_layout()
     
@@ -548,7 +540,7 @@ def compare_roc(dataset: Dataset, models_and_cuts: dict, mass: float, title='', 
     else:
         should_show = False
     
-    ax.set_title(f'[{name}] ROC @ {int(mass)}mA [{title}]')
+    ax.set_title(f'[{name}] ROC @ {int(mass)} GeV [{title}]')
 
     for k, (model, cut) in models_and_cuts.items():
         out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
@@ -621,12 +613,12 @@ def auc_vs_mass(dataset, models: dict, intervals: list = None, size=(12, 10), di
     else:
         should_show = False
     
-    ax.set_title(f'{title} [weighted = {isinstance(weight_column, str)}]')
+    ax.set_title(title)
     
     for k, v in auc.items():
         ax.plot(mass, v, marker='o', label=f'{k}: {round(np.mean(v), digits)}')
     
-    ax.set_xlabel(r'$m_A$ (GeV)')
+    ax.set_xlabel('Mass (GeV)')
     ax.set_ylabel('AUC')
         
     ax.legend(loc='best')
@@ -713,7 +705,7 @@ def compare_pr(dataset: Dataset, models_and_cuts: dict, mass: float, title='', i
     else:
         should_show = False
     
-    ax.set_title(f'[{name}] PR Curve @ {int(mass)}mA [{title}]')
+    ax.set_title(f'[{name}] PR Curve @ {int(mass)} GeV [{title}]')
     
     for k, (model, cut) in models_and_cuts.items():
         out, _, w = _get_predictions_and_weights(model, x, y, sig, bkg, bins, weight_column)
@@ -803,7 +795,7 @@ def var_priori(dataset: Dataset, variables: list, mass: float, interval=50.0, si
         ax.legend(loc='upper left')
         ax.add_artist(leg)
 
-        ax.set_title(f'mA @ {int(mass)} - dimuon_mass in {interval}')
+        ax.set_title(f'Sig @ {int(mass)} GeV - bkg in {interval}')
         ax.set_xlabel(col)
         ax.set_ylabel('Weighted Count')
         
@@ -890,7 +882,7 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
 
     assert len(models) <= 2, 'At most two models can be compared!'
 
-    def predict(model, x, cut):
+    def predict(model, x, y, cut):
         out = model.predict(x=x, batch_size=1024, verbose=0)
         out = np.asarray(out)
     
@@ -998,7 +990,7 @@ def var_posteriori(dataset: Dataset, models: list, variables: list, mass: float,
             ax.legend(loc='upper left')
             ax.add_artist(leg)
 
-            ax.set_title(f'mA @ {int(mass)} - dimuon_mass in {interval}')
+            ax.set_title(f'Sig @ {int(mass)} GeV - Bkg in {interval}')
             ax.set_xlabel(col)
             ax.set_ylabel('Weighted Count')
             
@@ -1127,7 +1119,7 @@ def variables(dataset: Dataset, model, variables: list, mass: float, cut: list, 
             ax.add_artist(leg)
 
             title = f'{"priori" if i == 0 else "posteriori@" + str(round(cut, 3))}' 
-            ax.set_title(f'[{title}] mA @ {int(mass)} - dimuon_mass in {interval}')
+            ax.set_title(f'[{title}] Sig @ {int(mass)} GeV - dimuon_mass in {interval}')
             
             ax.set_xlabel(col)
             ax.set_ylabel('Weighted Count')
@@ -1251,7 +1243,7 @@ def _get_predictions_and_weights(model, x, y, sig: pd.DataFrame, bkg: pd.DataFra
 
         h_bkg, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
         h_bkg = np.sum(h_bkg)
-
+        
         h_sig, _ = np.histogram(y_sig, bins=bins)
         h_sig = np.sum(h_sig)
 
@@ -1259,7 +1251,7 @@ def _get_predictions_and_weights(model, x, y, sig: pd.DataFrame, bkg: pd.DataFra
     
     return out, (y_sig, y_bkg), (w_sig, w_bkg)
 
-    
+
 def _get_best_ams_cut(y_sig, y_bkg, w_sig, w_bkg, bins):
     cuts = np.linspace(0.0, 1.0, num=bins)
     ams = []

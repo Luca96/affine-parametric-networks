@@ -55,7 +55,7 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
                  features: list, weight_column='weight', seed=utils.SEED, sample_mass=True, 
                  normalize_signal_weights=False, sample_mass_initially=False, 
-                 replicate_bkg=False, **kwargs):
+                 replicate_bkg=False, shuffle_on_epoch=False, **kwargs):
         assert batch_size >= 1
         
         columns = features + ['mA', 'type']
@@ -75,6 +75,7 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
         self.gen = utils.get_random_generator(seed)
         self.batch_size = int(batch_size)
         self.should_sample_mass = bool(sample_mass)
+        self.should_shuffle_on_epoch = bool(shuffle_on_epoch)
 
         self.mass = np.sort(signal['mA'].unique())
         self.data = np.concatenate([signal[columns].values, 
@@ -126,8 +127,13 @@ class SimpleEvalSequence(tf.keras.utils.Sequence):
         
         return dict(x=x, m=m), y
 
-    def to_tf_dataset(self):
-        return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
+    def on_epoch_end(self):
+        if self.should_shuffle_on_epoch:
+            self.gen.shuffle(self.data)
+            utils.free_mem()
+
+    def to_tf_dataset(self, **kwargs):
+        return utils.dataset_from_sequence(self, sample_weights=self.should_weight, **kwargs)
     
     def _normalize_signal_weights(self):
         if self.should_weight:
@@ -214,6 +220,10 @@ class AbstractSequence(tf.keras.utils.Sequence):
     def to_tf_dataset(self):
         return utils.dataset_from_sequence(self, sample_weights=self.should_weight)
     
+    def _shuffle_data(self):
+        self.gen.shuffle(self.data)
+        utils.free_mem()
+
     @classmethod
     def get_data(cls, dataset, train_batch=1024, eval_batch=1024, eval_cls=SimpleEvalSequence,
                  **kwargs):
@@ -232,6 +242,7 @@ class AbstractSequence(tf.keras.utils.Sequence):
         return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]
 
 
+# TODO: rename to `IdenticalSequence` or `FixedSequence`?
 class OneVsAllSequence(AbstractSequence):
     """Implements the '1-vs-all' mA sampling strategy for 'same' distribution"""
     
@@ -268,6 +279,9 @@ class OneVsAllSequence(AbstractSequence):
         
         return dict(x=x, m=m), y
 
+    def on_epoch_end(self):
+        self._shuffle_data()
+
     
 class IntervalSequence(EvalSequence, AbstractSequence):
     """Implements mA assignment based on given `intervals`"""
@@ -276,6 +290,9 @@ class IntervalSequence(EvalSequence, AbstractSequence):
         super().__init__(*args, **kwargs)
         
         self.should_sample_mass = False
+
+    def on_epoch_end(self):
+        self._shuffle_data()
 
 
 class BalancedSequence(AbstractSequence):
@@ -601,6 +618,9 @@ class UniformSequence(AbstractSequence):
         
         return dict(x=x, m=m), y
 
+    def on_epoch_end(self):
+        self._shuffle_data()
+
 
 class BalancedUniformSequence(AbstractSequence):
     """tf.keras.Sequence with balanced batches for each mass"""
@@ -682,6 +702,10 @@ class BalancedUniformSequence(AbstractSequence):
         y = np.reshape(y, newshape=(-1, 1))
 
         return dict(x=x, m=m), y
+
+    def on_epoch_end(self):
+        pass
+
 
 class BalancedIdenticalSequence(BalancedUniformSequence):
     """tf.keras.Sequence with balanced batches for each mass; identical mA distribution"""

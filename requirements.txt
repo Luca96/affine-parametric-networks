@@ -2,7 +2,6 @@ numpy==1.22.2
 pandas==1.4.1
 scipy==1.8.0
 tensorflow==2.8.0
-tensorflow-probability==0.16.0
 matplotlib==3.5.1
 scikit-learn==1.0.2
 seaborn==0.11.2

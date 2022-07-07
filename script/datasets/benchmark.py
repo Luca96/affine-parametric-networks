@@ -7,7 +7,7 @@ from typing import Union
 
 
 class Benchmark:
-    """Class that wraps our BENCHMARK dataset"""
+    """Class that wraps our HEPMASS-IMB benchmark dataset"""
     
     def __init__(self):
         self.ds = None
@@ -34,17 +34,17 @@ class Benchmark:
         
         self.background = self._load_csv(bkg)
         self.names_df = pd.DataFrame({'name': self.background['name']})
-        
+
         # TODO: if unused delete
         # concatenate
         self.ds = pd.concat([self.signal, self.background], ignore_index=True)
         # DO NOT reset index
         
         # select columns
-        self.columns = dict(feature=features, mA='mA',
-                            label='type', mass='dimuon_mass')
+        self.columns = dict(feature=features, mass='mass', label='type')
+
         # mass
-        self.unique_signal_mass = np.sort(self.signal['mA'].unique())
+        self.unique_signal_mass = np.sort(self.signal['mass'].unique())
 
         # mass intervals
         self.default_intervals = np.array([(-np.inf, np.inf)] * len(self.unique_signal_mass))
@@ -80,6 +80,7 @@ class Benchmark:
         return df
 
 
+# to ensure compatibility with old code
 class Dataset(Benchmark):
     FEATURE_COLUMNS = []
     MASS_INTERVALS = []

@@ -21,11 +21,11 @@ PALETTE = {'signal': 'blue', 'bkg': 'red'}
 
 
 def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=False, features=None):
-    """Computes the significance and its best-cut for each mA"""
+    """Computes the significance and its best-cut for each mass"""
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
     
-    features, mA, label = _get_columns(dataset, features)
+    features, mass, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -34,12 +34,12 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
         # should not weight
         weight = False  
         
-    for mass in dataset.unique_signal_mass:
+    for m in dataset.unique_signal_mass:
         # select both signal and background in interval (m-d, m+d)
-        s = sig[sig[mA] == mass]
+        s = sig[sig[mass] == m]
         
         if not all_bkg:
-            b = bkg[bkg[mA] == mass]
+            b = bkg[bkg[mass] == m]
         else:
             b = bkg
         
@@ -61,8 +61,8 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
         if weight:
             w_b /= len(dataset.unique_signal_mass)
         
-        s, _ = np.histogram(y_s, bins=bins)
-        b, _ = np.histogram(y_b, bins=bins, weights=w_b)
+        s, _ = np.histogram(y_s, bins=bins, range=(0, 1))
+        b, _ = np.histogram(y_b, bins=bins, range=(0, 1), weights=w_b)
 
         for i in range(s.shape[0]):
             s_i = np.sum(s[i:])
@@ -75,16 +75,19 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
             ams_ = np.array(ams_) / max_ams
 
         ams.append(ams_)
-    
+
+    ams = np.array(ams)
+    ams[np.isnan(ams) | np.isinf(ams)] = 0
+
     return np.max(ams, axis=-1), cuts[np.argmax(ams, axis=-1)]
 
 
 def get_curve_auc(dataset: Hepmass, models: dict, bins=50, features=None, weight=True, 
                   which='ROC', **kwargs):
-    """Plots the AUC of the ROC curve at each signal's mA""" 
+    """Plots the AUC of the ROC curve at each signal's mass""" 
     assert which.upper() in ['ROC', 'PR']
     
-    features, mA, label = _get_columns(dataset, features)
+    features, mass, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -108,7 +111,7 @@ def get_curve_auc(dataset: Hepmass, models: dict, bins=50, features=None, weight
     for name, model in models.items():
         for m in mass:
             # select data
-            s = sig[sig[mA] == m]
+            s = sig[sig[mass] == m]
                 
             # prepare data
             x = np.concatenate([s[features].values, b_values], axis=0)
@@ -136,9 +139,9 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
         fig = plt.figure(figsize=size)
         ax = fig.gca()
     
-    features, mA, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal[mA] == mass]
+    s = dataset.signal[dataset.signal[mass] == mass]
     b = dataset.background
     num_sig = len(s)
     
@@ -146,8 +149,8 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
         # should not weight
         weight = False  
         
-        # select bkg by mA
-        b = b[b[mA] == mass]
+        # select bkg by mass
+        b = b[b[mass_col] == mass]
     
     # prepare data
     x = np.concatenate([s[features].values, b[features].values], axis=0)
@@ -172,8 +175,8 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     cuts = np.linspace(0.0, 1.0, num=bins)
     ams = []
     
-    s, _ = np.histogram(y_s, bins=bins)
-    b, _ = np.histogram(y_b, bins=bins, weights=w_b)
+    s, _ = np.histogram(y_s, bins=bins, range=(0, 1))
+    b, _ = np.histogram(y_b, bins=bins, range=(0, 1), weights=w_b)
     
     for i in range(bins):
         s_i = np.sum(s[i:])
@@ -184,7 +187,10 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     if ratio:
         ams_max = num_sig / np.sqrt(num_sig)
         ams = np.array(ams) / ams_max
-    
+
+    ams = np.array(ams)
+    ams[np.isnan(ams) | np.isinf(ams)] = 0
+
     k = np.argmax(ams)
     
     # plot significance and best-cut
@@ -211,7 +217,6 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     ax.set_ylabel('Weighted Count')
     
     # title
-    # str1 = f'#bins = {bins}; weighted = {weight}'
     str1 = f'{name} Output @ {int(mass)} GeV'
     str2 = f'# signal = {int(np.sum(s))}, # bkg = {len(dataset.background)}'
 
@@ -234,7 +239,7 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
     fig.set_figwidth(size[0] * 2)
     fig.set_figheight(size[1])
     
-    features, mA, label = _get_columns(dataset, features)
+    features, _, label = _get_columns(dataset, features)
     
     ams = {}
     cut = {}
@@ -254,10 +259,10 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
         
         for mass in dataset.unique_signal_mass:
             # select data
-            s = sig[sig[mA] == mass]
+            s = sig[sig['mass'] == mass]
                 
             if not all_bkg:
-                b = bkg[bkg[mA] == mass]
+                b = bkg[bkg['mass'] == mass]
                 
                 b_values = b[features].values
                 b_labels = b[label]
@@ -317,10 +322,10 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
 
 def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='plot', legend='best',
                 features=None, save=None, ax=None, weight=True, which='ROC', digits=3, **kwargs):
-    """Plots the AUC of the ROC curve at each signal's mA""" 
+    """Plots the AUC of the ROC curve at each signal's mass""" 
     assert which.upper() in ['ROC', 'PR']
     
-    features, mA, label = _get_columns(dataset, features)
+    features, _, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -346,7 +351,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     for name, model in models.items():
         for m in mass:
             # select data
-            s = sig[sig[mA] == m]
+            s = sig[sig['mass'] == m]
                 
             # prepare data
             x = np.concatenate([s[features].values, b_values], axis=0)
@@ -384,7 +389,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     
     if isinstance(save, str):
         path = utils.makedir(path)
-        plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(path, f'{save}_{int(mass)}m.png'), bbox_inches='tight')
     
     if should_show:
         plt.tight_layout()
@@ -396,15 +401,15 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
 def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digits=3,
                 path='plot', save=None, ax=None, legend='lower right', features=None, 
                 weight=True, all_bkg=True, **kwargs):
-    """ROC Curve"""
-    features, mA, label = _get_columns(dataset, features)
+    """Compares ROC curves for different models"""
+    features, _, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal[mA] == mass]
+    s = dataset.signal[dataset.signal['mass'] == mass]
     b = dataset.background
     
     if not all_bkg:
         weight = False
-        b = b[b[mA] == mass]
+        b = b[b['mass'] == mass]
     
     # prepare data
     x = pd.concat([s[features], b[features]], axis=0).values
@@ -441,7 +446,7 @@ def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digi
     
     if isinstance(save, str):
         path = utils.makedir(path)
-        plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(path, f'{save}_{int(mass)}m.png'), bbox_inches='tight')
     
     if should_show:    
         plt.show()
@@ -450,15 +455,15 @@ def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digi
 def compare_pr(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digits=3,
                path='plot', save=None, ax=None, legend='lower left', features=None, 
                weight=True, all_bkg=True, **kwargs):
-    """Precision-Recall Curve"""
-    features, mA, label = _get_columns(dataset, features)
+    """Comparison of Precision-Recall Curves"""
+    features, _, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal[mA] == mass]
+    s = dataset.signal[dataset.signal['mass'] == mass]
     b = dataset.background
 
     if not all_bkg:
         weight = False
-        b = b[b[mA] == mass]
+        b = b[b['mass'] == mass]
     
     # prepare data
     x = pd.concat([s[features], b[features]], axis=0).values
@@ -496,7 +501,7 @@ def compare_pr(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digit
     
     if isinstance(save, str):
         path = utils.makedir(path)
-        plt.savefig(os.path.join(path, f'{save}_{int(mass)}mA.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(path, f'{save}_{int(mass)}m.png'), bbox_inches='tight')
     
     if should_show:    
         plt.show()
@@ -516,14 +521,17 @@ def _get_best_ams_cut(y_sig, y_bkg, w_bkg, bins: int):
     cuts = np.linspace(0.0, 1.0, num=int(bins))
     ams = []
     
-    s, _ = np.histogram(y_sig, bins=bins)
-    b, _ = np.histogram(y_bkg, bins=bins, weights=w_bkg)
+    s, _ = np.histogram(y_sig, bins=bins, range=(0, 1))
+    b, _ = np.histogram(y_bkg, bins=bins, range=(0,1), weights=w_bkg)
 
     for i in range(s.shape[0]):
         s_i = np.sum(s[i:])
         b_i = np.sum(b[i:])
 
         ams.append(s_i / np.sqrt(s_i + b_i))
+
+    ams = np.array(ams)
+    ams[np.isnan(ams) | np.isinf(ams)] = 0
 
     return np.max(ams), cuts[np.argmax(ams)]
 
@@ -532,7 +540,7 @@ def _get_columns(dataset, features):
     if features is None:
         features = dataset.columns['feature']
     
-    mA = dataset.columns['mA']
+    mass = dataset.columns['mass']
     label = dataset.columns['label']
     
-    return features, mA, label
+    return features, mass, label

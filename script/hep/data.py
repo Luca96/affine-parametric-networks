@@ -109,7 +109,7 @@ class EvalSequence(tf.keras.utils.Sequence):
         z = self.data[start_idx:stop_idx]
         w = self.weights[start_idx:stop_idx]
 
-        # split data (features, mA, label)
+        # split data (features, m, label)
         x = z[:, :self.indices['features']]
         m = z[:, self.indices['mass']].reshape(-1, 1)
         y = z[:, self.indices['label']].reshape(-1, 1)
@@ -121,7 +121,7 @@ class EvalSequence(tf.keras.utils.Sequence):
 
 
 class BalancedSequence(tf.keras.utils.Sequence):
-    """keras.Sequence that balances the signal (each mA has the same number of events), and background"""
+    """keras.Sequence that balances the signal (each m has the same number of events), and background"""
 
     def __init__(self, data, signal: pd.DataFrame, bkg: pd.DataFrame, batch_size: int, features: list, 
                  mass: list = None, all_bkg=False, seed=utils.SEED):
@@ -317,7 +317,7 @@ class TrainingSequence(tf.keras.utils.Sequence):
         kwargs.pop('uniform_mass', None)
 
         valid_seq = cls(signal=valid[0], background=valid[1], columns=dataset.columns, 
-                        batch_size=int(train_batch), features=features, sample_mass=False, 
+                        batch_size=int(eval_batch), features=features, sample_mass=False,
                         uniform_mass=None, **kwargs)
 
         # return tf.Datasets

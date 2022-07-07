@@ -295,115 +295,57 @@ def get_plot_axes(rows: int, cols: int, size=(12, 10), **kwargs):
     return axes
 
 
-def plot_mass_reliance(result: dict, data, size=(12, 9), loc='best'):
-    from script.datasets import Hepmass
-    
-    none_x = np.array(result['none'])
-    all_x = np.array(result['all'])
-    
-    metric = 200 * np.abs(none_x / all_x - 0.5)
-    plt.figure(figsize=size)
-    
-    plt.title('Mass Reliance')
-    plt.xlabel('mass')
-    plt.ylabel('%')
-    
-    if isinstance(data, Hepmass):
-        mass = data.unique_mass
-    else:
-        mass = data.unique_signal_mass
-    
-    ax = plt.plot(mass, metric, label='$m_{r}$: ' + f'{round(np.mean(metric), 2)}%')
-    plt.scatter(mass, metric, color=ax[-1].get_color())
-    
-    plt.legend(loc=loc)
-    plt.show()
-
-
-def plot_model_distribution(model, dataset, bins=20, name='Model', sample_frac=None, size=24):
-    from script.datasets import Hepmass
-
-    if isinstance(dataset, Hepmass):
-        fig, axes = plt.subplots(ncols=3, nrows=2)
-        
-        masses = dataset.unique_mass + [None]
-        ds_name = 'HEPMASS'
-    
-        fig.set_figheight(size // len(masses))
-        fig.set_figwidth(size)
-    else:
-        ds_name = 'Dataset'
-    
-    plt.suptitle(f'[{ds_name}] {name}\'s output distribution', verticalalignment='center')
-    
-    for i, mass in enumerate(dataset.unique_mass):
-        ax = axes[i]
-        x, y = dataset.get_by_mass(mass, sample=sample_frac)
-        
-        out = model.predict(x, batch_size=128, verbose=0)
-        out = np.asarray(out)
-        
-        bkg = out[y == 0.0]
-        sig = out[y == 1.0]
-        
-        ax.set_title(f'{int(round(mass))} GeV')
-        ax.set_xlabel('Probability')
-        ax.set_ylabel('Num. Events')
-        
-        ax.hist(sig, bins=bins, alpha=0.55, label='sig', color='blue', edgecolor='blue')
-        ax.hist(bkg, bins=bins, alpha=0.7, label='bkg', color='red', histtype='step', 
-                hatch='//', linewidth=2, edgecolor='red')
-        ax.legend(loc='best')
-
-    fig.tight_layout()
-
-
-def project_manifold(model, x, y, amount=100_000, size=(12, 10), name='pNN', palette=None, mass=1.0, 
-                     scaler=None, projection=TSNE, **kwargs):
+def project_manifold(model, x, y, amount=100_000, size=(12, 10), name='pNN', palette=None, 
+                     projection=TSNE, **kwargs):
     free_mem()
     
     # predict
     z = model.predict(x, batch_size=1024, verbose=1)
-
-    # select only true positives
-    mask = np.round(z['y']) == y
-    mask = np.squeeze(mask)
     
+    # select only true positives
+    mask = np.round(z['y']).reshape((-1, 1)) == np.reshape(y, (-1, 1))
+    mask = np.squeeze(mask)
+
     # take a random subset
     r = z['r'][mask]
-    idx = np.random.choice(np.arange(r.shape[0]), size=int(amount), replace=False)
+
+    if isinstance(amount, int):
+        idx = np.random.choice(np.arange(r.shape[0]), size=min(len(r), int(amount)), replace=False)
+    else:
+        idx = np.arange(r.shape[0])
     
     del z
     free_mem()
     
     # manifold learning method
+    n_jobs = kwargs.pop('n_jobs', -1)
+
     if projection != Isomap:
-        method = projection(random_state=utils.SEED, n_jobs=-1, **kwargs)
+        method = projection(random_state=kwargs.pop('random_state', SEED), n_jobs=n_jobs, **kwargs)
     else:
-        method = Isomap(n_jobs=-1, **kwargs)
+        method = Isomap(n_jobs=n_jobs, **kwargs)
         
     emb = method.fit_transform(r[idx])
     
     # make dataframe
     m = np.squeeze(x['m'][mask][idx])
+    m = np.round(m).astype(np.int32)
     
-    if (scaler is not None) and callable(getattr(scaler, 'inverse_transform', None)):
-        m = scaler.inverse_transform(np.reshape(m, newshape=(-1, 1)))
-        m = np.squeeze(m)
-    else:
-        m = mass * m
-    
-    df = pd.DataFrame({'x': emb[:, 0], 'y': emb[:, 1], 'm': np.round(m)})
+    df = pd.DataFrame({'x': emb[:, 0], 'y': emb[:, 1], 'Mass': m, 
+                       'Label': np.reshape(y[mask][idx], newshape=m.shape)})
     
     # plot
-    plt.figure(figsize=(12, 10))
+    ax0, ax1 = get_plot_axes(rows=1, cols=2, size=(12, 10))
 
-    ax = sns.scatterplot(data=df, x='x', y='y', hue='m', legend='full', palette=palette)
-    ax.set_title(f'Intermediate Representation Manifold ({name})')
+    ax0 = sns.scatterplot(data=df, x='x', y='y', hue='Mass', legend='full', palette=palette, ax=ax0)
+    ax0.set_title(f'Intermediate Representation Manifold ({name})')
+
+    ax1 = sns.scatterplot(data=df, x='x', y='y', hue='Label', legend='full', ax=ax1)
     
+    plt.tight_layout()
     plt.show()
+    
     free_mem()
-    return df
 
 
 class SignificanceRatio(tf.keras.metrics.Metric):

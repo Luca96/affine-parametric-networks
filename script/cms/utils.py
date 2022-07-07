@@ -14,41 +14,12 @@ def retrieve_clip(ranges: dict,  columns: list) -> np.ndarray:
     return np.array([ranges[col] for col in columns])
 
 
-def get_test_from_dataset(dataset: Dataset, process: str, tanb: float = None, mass=None, interval=None):
-    s = dataset.signal
-    b = dataset.background
-    
-    if isinstance(mass, (float, int)):
-        s = s[s['mA'] == mass]
-        
-    if isinstance(interval, (list, tuple, np.ndarray)):
-        b = b[(b['dimuon_mass'] > interval[0]) & (b['dimuon_mass'] < interval[1])]
-    
-    b = b[b['name'] != 'ZMM'].copy()
-    
-    assert process in s['process'].unique()
-    mask = s['process'] == process
-
-    if isinstance(tanb, (int, float)):
-        assert tanb in s['tanbeta'].unique()
-        mask = mask & (s['tanbeta'] == tanb)
-    
-    s = s[mask].copy()
-    
-    ds = Dataset()
-    ds.load(signal=s, bkg=b, feature_columns=dataset.columns['feature'])
-    
-    if (mass is None) and (interval is None):
-        ds.mass_intervals = dataset.mass_intervals
-
-    return ds
-
-
 class IndividualNNs:
-    """Wraps a set of networks trained on one mA as a whole"""
+    """Wraps a set of networks trained on one mass as a whole"""
     def __init__(self, dataset: Dataset, mapping: dict, **kwargs):
         self.models = {}
-        
+        self.should_inspect = kwargs.get('inspect', False)
+
         # load models
         for mass, model_or_path in mapping.items():
             if isinstance(model_or_path, str):
@@ -73,7 +44,12 @@ class IndividualNNs:
     def predict(self, x, **kwargs):
         # use the right `model` according to `x['m']` (i.e. mass)
         m = x['m']
-        z = np.empty(m.shape, dtype=np.float32)
+
+        if not self.should_inspect:
+            z = np.empty(m.shape, dtype=np.float32)
+        else:
+            z = dict(y=np.empty(m.shape, dtype=np.float32),
+                     r=None)
         
         for mass, model in self.models.items():
             mask = tf.squeeze(m == mass)
@@ -85,7 +61,16 @@ class IndividualNNs:
             # predict
             x_m = {k: tf.boolean_mask(v, mask) for k, v in x.items()}
             z_m = model.predict(x_m, **kwargs)
-            
-            z[mask] = z_m
+
+            if not self.should_inspect:
+                z[mask] = z_m
+            else:
+                z['y'][mask] = np.squeeze(z_m['y'])
+
+                if z['r'] is None:
+                    shape = (m.shape[0], z_m['r'].shape[-1])
+                    z['r'] = np.empty(shape, dtype=np.float32)
+
+                z['r'][mask] = z_m['r']
         
         return z

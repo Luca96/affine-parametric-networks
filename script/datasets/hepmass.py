@@ -47,8 +47,8 @@ class Hepmass:
             self.ds = pd.concat([signal, bkg])
         
         # select columns
-        self.columns = dict(feature=list(self.ds.columns[1:-1]), mA='mass',
-                            label='type', mass='f26')
+        self.columns = dict(feature=list(self.ds.columns[1:-1]), 
+                            mass='mass', label='type')
         # mass
         self.unique_signal_mass = np.sort(self.signal['mass'].unique())
 

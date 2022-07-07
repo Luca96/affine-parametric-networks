@@ -34,11 +34,11 @@ With our proposed improvements, we are able to achieve better *classification* a
    pip install -r requirements.txt
    ```
 
-3. Download the `HEPMASS` dataset from [here]([UCI Machine Learning Repository: HEPMASS Data Set](http://archive.ics.uci.edu/ml/datasets/hepmass)): click on "data folder", then download and extract: `all_test.csv.gz` and `all_train.csv.gz`; the latter is only required for the notebook `hep-training.ipynb`. IMPORTANT: save the `.csv` files under the repository folder at `\data\hepmass`.
+3. Download the `HEPMASS` dataset from [here](http://archive.ics.uci.edu/ml/datasets/hepmass): click on "data folder", then download and extract: `all_test.csv.gz` and `all_train.csv.gz`; the latter is only required for the notebook `hep-training.ipynb`. IMPORTANT: save the `.csv` files under the repository folder at `\data\hepmass`.
 
 3. Conversion of HEPMASS: some small changes are made to the original csv files of HEPMASS, you can find the procedure at the beginning of the notebook `HEPMASS.ipynb` or [here](https://zenodo.org/record/6453048).
 
-4. Download and extract our dataset `HEPMASS-IMB`, [here]([HEPMASS-IMB | Zenodo](https://zenodo.org/record/6453048)): there are two files in total, `imbalanced_background.csv` and `imbalanced_signal.csv`. As before, save the `.csv` files within `\data\hepmass`.
+4. Download and extract our dataset `HEPMASS-IMB`, [here](https://zenodo.org/record/6453048): there are two files in total, `imbalanced_background.csv` and `imbalanced_signal.csv`. As before, save the `.csv` files within `\data\hepmass`.
 
 5. Now you're ready to run the notebooks, or to use the pretrained weights.
 

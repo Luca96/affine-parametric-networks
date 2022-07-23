@@ -17,7 +17,7 @@ class NN(PNN):
     	super().__init__(*args, name=name, **kwargs)
 
     def structure(self, shapes: dict, units=[128, 128], activation='relu', dropout=0.0, linear=False,
-                  preprocess: Dict[str, list] = None, inspect=True, **kwargs) -> tuple:
+                  preprocess: Dict[str, list] = None, inspect=False, **kwargs) -> tuple:
         assert len(units) > 1
 
         output_args = kwargs.pop('output', {})

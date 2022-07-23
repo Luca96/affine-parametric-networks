@@ -53,7 +53,7 @@ class IndividualNNs:
         
         for mass, model in self.models.items():
             mask = tf.squeeze(m == mass)
-            
+
             if tf.reduce_sum(tf.cast(mask, dtype=tf.int32)) <= 0:
                 # no `mass` in input data
                 continue
@@ -63,7 +63,10 @@ class IndividualNNs:
             z_m = model.predict(x_m, **kwargs)
 
             if not self.should_inspect:
-                z[mask] = z_m
+                if isinstance(z_m, dict):
+                    z[mask] = z_m['y']
+                else:
+                    z[mask] = z_m
             else:
                 z['y'][mask] = np.squeeze(z_m['y'])
 

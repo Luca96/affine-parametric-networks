@@ -25,7 +25,7 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
     ams = []
     cuts = np.linspace(0.0, 1.0, num=bins)
     
-    features, mass, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -34,12 +34,12 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
         # should not weight
         weight = False  
         
-    for m in dataset.unique_signal_mass:
+    for mass in dataset.unique_signal_mass:
         # select both signal and background in interval (m-d, m+d)
-        s = sig[sig[mass] == m]
+        s = sig[sig[mass_col] == mass]
         
         if not all_bkg:
-            b = bkg[bkg[mass] == m]
+            b = bkg[bkg[mass_col] == mass]
         else:
             b = bkg
         
@@ -68,7 +68,10 @@ def get_ams_and_cut(model, dataset, bins=50, weight=True, all_bkg=True, ratio=Fa
             s_i = np.sum(s[i:])
             b_i = np.sum(b[i:])
 
-            ams_.append(s_i / np.sqrt(s_i + b_i))
+            if s_i + b_i > 0:
+                ams_.append(s_i / np.sqrt(s_i + b_i))
+            else:
+                ams_.append(0.0)
 
         if ratio:
             max_ams = len(y_s) / np.sqrt(len(y_s))
@@ -87,7 +90,7 @@ def get_curve_auc(dataset: Hepmass, models: dict, bins=50, features=None, weight
     """Plots the AUC of the ROC curve at each signal's mass""" 
     assert which.upper() in ['ROC', 'PR']
     
-    features, mass, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -111,7 +114,7 @@ def get_curve_auc(dataset: Hepmass, models: dict, bins=50, features=None, weight
     for name, model in models.items():
         for m in mass:
             # select data
-            s = sig[sig[mass] == m]
+            s = sig[sig[mass_col] == m]
                 
             # prepare data
             x = np.concatenate([s[features].values, b_values], axis=0)
@@ -141,7 +144,7 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
     
     features, mass_col, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal[mass] == mass]
+    s = dataset.signal[dataset.signal[mass_col] == mass]
     b = dataset.background
     num_sig = len(s)
     
@@ -165,10 +168,10 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
         w_b *= len(y_s) / len(y_b)
     
     # histograms
-    ax.hist(y_s, bins=bins, alpha=0.55, label='signal', color=palette['signal'],
+    ax.hist(y_s, bins=bins, range=(0, 1), alpha=0.55, label='signal', color=palette['signal'],
             edgecolor=palette['signal'], histtype='step', linewidth=2, hatch='//')
     
-    ax.hist(y_b, bins=bins, alpha=0.7, label='bkg', color=palette['bkg'],
+    ax.hist(y_b, bins=bins, range=(0, 1), alpha=0.7, label='bkg', color=palette['bkg'],
             histtype='step', edgecolor=palette['bkg'],  weights=w_b)
     
     # compute significance
@@ -182,7 +185,10 @@ def significance(model, dataset: Hepmass, mass: int, digits=4, bins=50, size=(12
         s_i = np.sum(s[i:])
         b_i = np.sum(b[i:])
         
-        ams.append(s_i / np.sqrt(s_i + b_i))
+        if s_i + b_i > 0:
+            ams.append(s_i / np.sqrt(s_i + b_i))
+        else:
+            ams.append(0.0)
     
     if ratio:
         ams_max = num_sig / np.sqrt(num_sig)
@@ -239,7 +245,7 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
     fig.set_figwidth(size[0] * 2)
     fig.set_figheight(size[1])
     
-    features, _, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
     ams = {}
     cut = {}
@@ -259,10 +265,10 @@ def significance_vs_mass(models: dict, dataset: Hepmass, bins=50, size=(12, 10),
         
         for mass in dataset.unique_signal_mass:
             # select data
-            s = sig[sig['mass'] == mass]
+            s = sig[sig[mass_col] == mass]
                 
             if not all_bkg:
-                b = bkg[bkg['mass'] == mass]
+                b = bkg[bkg[mass_col] == mass]
                 
                 b_values = b[features].values
                 b_labels = b[label]
@@ -325,7 +331,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     """Plots the AUC of the ROC curve at each signal's mass""" 
     assert which.upper() in ['ROC', 'PR']
     
-    features, _, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
     sig = dataset.signal
     bkg = dataset.background
@@ -351,7 +357,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     for name, model in models.items():
         for m in mass:
             # select data
-            s = sig[sig['mass'] == m]
+            s = sig[sig[mass_col] == m]
                 
             # prepare data
             x = np.concatenate([s[features].values, b_values], axis=0)
@@ -402,14 +408,14 @@ def compare_roc(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digi
                 path='plot', save=None, ax=None, legend='lower right', features=None, 
                 weight=True, all_bkg=True, **kwargs):
     """Compares ROC curves for different models"""
-    features, _, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal['mass'] == mass]
+    s = dataset.signal[dataset.signal[mass_col] == mass]
     b = dataset.background
     
     if not all_bkg:
         weight = False
-        b = b[b['mass'] == mass]
+        b = b[b[mass_col] == mass]
     
     # prepare data
     x = pd.concat([s[features], b[features]], axis=0).values
@@ -456,14 +462,14 @@ def compare_pr(dataset, models_and_cuts: dict, mass: float, size=(12, 10), digit
                path='plot', save=None, ax=None, legend='lower left', features=None, 
                weight=True, all_bkg=True, **kwargs):
     """Comparison of Precision-Recall Curves"""
-    features, _, label = _get_columns(dataset, features)
+    features, mass_col, label = _get_columns(dataset, features)
     
-    s = dataset.signal[dataset.signal['mass'] == mass]
+    s = dataset.signal[dataset.signal[mass_col] == mass]
     b = dataset.background
 
     if not all_bkg:
         weight = False
-        b = b[b['mass'] == mass]
+        b = b[b[mass_col] == mass]
     
     # prepare data
     x = pd.concat([s[features], b[features]], axis=0).values
@@ -528,10 +534,13 @@ def _get_best_ams_cut(y_sig, y_bkg, w_bkg, bins: int):
         s_i = np.sum(s[i:])
         b_i = np.sum(b[i:])
 
-        ams.append(s_i / np.sqrt(s_i + b_i))
+        if s_i + b_i > 0:
+            ams.append(s_i / np.sqrt(s_i + b_i))
+        else:
+            ams.append(0.0)
 
     ams = np.array(ams)
-    ams[np.isnan(ams) | np.isinf(ams)] = 0
+    ams[np.isnan(ams) | np.isinf(ams)] = 0.0
 
     return np.max(ams), cuts[np.argmax(ams)]
 

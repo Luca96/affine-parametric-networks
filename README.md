@@ -4,7 +4,7 @@
 
 
 
-**Parametric Neural Networks** (pNNs) are a kind of neural networks, developed by [Baldi et al.](https://arxiv.org/pdf/1601.07913), which are mainly used for *signal-background classification* in High-Energy Physics (HEP). In our recent [paper](https://arxiv.org/pdf/2202.00424), we propose various improvements to the original pNN, one of which is the *affine architecture* based on interleaving multiple **affine-conditioning layers**:
+**Parametric Neural Networks** (pNNs) are a kind of neural networks, developed by [Baldi et al.](https://arxiv.org/pdf/1601.07913), which are mainly used for *signal-background classification* in High-Energy Physics (HEP). In our recent [paper](https://iopscience.iop.org/article/10.1088/2632-2153/ac917c), we propose various improvements to the original pNN, one of which is the *affine architecture* based on interleaving multiple **affine-conditioning layers**:
 
 ![affine-conditioning_layer](src/affine_layer.png)
 
@@ -62,11 +62,18 @@ The repository is organized as follows:
 If you use the code and/or the dataset we provide for your own project or research, please cite our paper:
 
 ```latex
-@article{anzalone2022improving,
-  title={Improving Parametric Neural Networks for High-Energy Physics (and Beyond)},
-  author={Anzalone, Luca and Diotalevi, Tommaso and Bonacorsi, Daniele},
-  journal={arXiv preprint arXiv:2202.00424},
-  year={2022}
+@article{Anzalone_2022,
+   doi = {10.1088/2632-2153/ac917c},
+   url = {https://doi.org/10.1088/2632-2153/ac917c},
+   year = 2022,
+   month = {sep},
+   publisher = {{IOP} Publishing},
+   volume = {3},
+   number = {3},
+   pages = {035017},
+   author = {Luca Anzalone and Tommaso Diotalevi and Daniele Bonacorsi},
+   title = {Improving parametric neural networks for high-energy physics (and beyond)},
+   journal = {Machine Learning: Science and Technology}
 }
 ```
 

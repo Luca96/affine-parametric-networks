@@ -2,8 +2,6 @@
 
 # Affine Parametric Neural Networks
 
-
-
 **Parametric Neural Networks** (pNNs) are a kind of neural networks, developed by [Baldi et al.](https://arxiv.org/pdf/1601.07913), which are mainly used for *signal-background classification* in High-Energy Physics (HEP). In our recent [paper](https://iopscience.iop.org/article/10.1088/2632-2153/ac917c), we propose various improvements to the original pNN, one of which is the *affine architecture* based on interleaving multiple **affine-conditioning layers**:
 
 ![affine-conditioning_layer](src/affine_layer.png)
@@ -12,11 +10,26 @@ resulting in the following neural architecture (*dropout* is omitted), which we 
 
 ![affine_architecture](src/affine_arch.png)
 
+Each affine-conditioning layer combines *conditional scaling* with *conditional biasing*, implementing the following operation:
+$$z = x\odot s_\phi(m) + b_\psi(m),$$
+where $z$ is the *conditioned representation*, $x$ the input features (or the output of intermediate hidden layer), $m$ is the mass feature (or physics parameter, in general), and both $s_\phi$ and $b_\psi$ denote two independent linear layers.
+
 We also demonstrate the effectiveness of our *balanced training* procedure, in which we build balanced mini-batches by leveraging the structure of both the signal and background, as well as discussing the possible choices to distribute the background's mass.
 
+### Results
 With our proposed improvements, we are able to achieve better *classification* and *interpolation* performance:
 
-![results](src/results.png) 
+![results](src/results.png)
+
+
+Interpolation:
+
+![interpolation](src/interpolation_results.png)
+
+* To assess interpolation, all the three parametric networks have been trained on 2 out of 5 mass points.
+* The missing mass hypotheses are: 750, 1000, and 1250 GeV.
+* As we can see, the `AffinePNN` (orange) is the best performer almost recovering the classification performance as if it were trained on all the data.
+* A pNN not always generalizes enough to enable interpolation: the green curve depicts a model that fails to classify samples at both 750 and 1000 GeV, due to insufficient regularization (e.g. lack of dropout), and wrong background's mass distribution. 
 
 ---
 ## Installation

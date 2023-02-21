@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.keras.layers import *
+from typing import List
 
 
 class Linear(Dense):
@@ -28,6 +29,31 @@ class ConcatConditioning(Layer):
         x = self.concat(inputs)
         x = self.dense(x)
         return x
+
+
+class ConditionalBiasing(Layer):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.expand = None
+
+    def build(self, input_shape: list):
+        super().build(input_shape)
+
+        features_shape, _ = input_shape
+        self.expand = Linear(units=features_shape[-1])
+
+    def call(self, inputs: List[tf.Tensor]):
+        x, z = inputs
+        return x + self.expand(z)
+
+
+class ConditionalScaling(ConditionalBiasing):
+
+    def call(self, inputs: List[tf.Tensor]):
+        x, z = inputs
+        return x * self.expand(z)
 
 
 class AffineConditioning(Layer):

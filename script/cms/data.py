@@ -180,9 +180,9 @@ class AbstractSequence(tf.keras.utils.Sequence):
         return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]
 
 
-# TODO: rename to `IdenticalSequence` or `FixedSequence`?
+# TODO: rename to `IdenticalSequence`?
 class OneVsAllSequence(AbstractSequence):
-    """Implements the '1-vs-all' mass sampling strategy for 'same' distribution"""
+    """Implements the identical (sampled) assignment strategy for mass distribution"""
     
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
                  features: list, **kwargs):

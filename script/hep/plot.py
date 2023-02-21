@@ -390,6 +390,7 @@ def auc_vs_mass(dataset: Hepmass, models: dict, bins=50, size=(12, 10), path='pl
     
     ax.set_xlabel('Mass (GeV)')
     ax.set_ylabel('AUC')
+    ax.set_xticks(mass)
         
     ax.legend(loc=legend)
     

@@ -11,7 +11,7 @@ from tensorflow_probability import distributions as tfd
 from script import utils
 from script.utils import tf_global_norm
 from script.models.parameters import DynamicParameter
-from script.models.layers import Linear
+from script.models import layers as my_layers
 
 from typing import Dict, Union
 
@@ -92,15 +92,22 @@ class PNN(tf.keras.Model):
         super().compile(optimizer, loss, metrics)
 
     def structure(self, shapes: dict, units=[128, 128], activation='relu', dropout=0.0, linear=False,
-                  noise=0.0, preprocess: Dict[str, list] = None, batch_normalization=False, **kwargs) -> tuple:
+                  noise=0.0, preprocess: Dict[str, list] = None, batch_normalization=False,
+                  conditioning: dict = None, **kwargs) -> tuple:
         assert len(units) > 1
 
         inspect = kwargs.pop('inspect', False)
         output_args = kwargs.pop('output', {})
         weight_init = kwargs.pop('kernel_initializer', 'glorot_uniform')
 
+        conditioning = conditioning or {}
+        conditioning.setdefault('method', 'concat')
+        conditioning.setdefault('place', 'start')
+        assert conditioning['place'] in ['start', 'all', 'end']
+
         if activation == 'selu':
             is_selu = True
+            # TODO: use variance scaling, instead
             kwargs['kernel_initializer'] = tf.initializers.lecun_normal(seed=utils.SEED)
         else:
             is_selu = False
@@ -120,17 +127,25 @@ class PNN(tf.keras.Model):
         else:
             m = preproc_inp['m']
 
-        x = concatenate([preproc_inp['x'], m])
+        # if conditioning['place'] in ['start', 'all']:
+        if conditioning['place'] == 'start':
+            x = self._get_conditioning(method=conditioning['method'])([preproc_inp['x'], m])
+            # x = concatenate([preproc_inp['x'], m])
+        else:
+            x = preproc_inp['x']
 
         if linear:
-            x = Linear(units=units.pop(0), **kwargs)(x)
+            x = my_layers.Linear(units=units.pop(0), **kwargs)(x)
 
         for num_units in units:
             if self.is_bayesian:
                 x = tfp.layers.DenseFlipout(units=num_units, activation=activation)(x) 
             else:
                 x = Dense(units=num_units, activation=activation, **kwargs)(x)
-            
+
+            if conditioning['place'] == 'all':
+                x = self._get_conditioning(method=conditioning['method'])([x, m])
+
             if batch_normalization:
                 x = BatchNormalization()(x)
 
@@ -142,6 +157,10 @@ class PNN(tf.keras.Model):
         
         if is_selu:
             kwargs['kernel_initializer'] = weight_init
+
+        # if conditioning['place'] in ['end', 'all']:
+        if conditioning['place'] == 'end':
+            x = self._get_conditioning(method=conditioning['method'])([x, m])
 
         outputs = self.output_layer(layer=x, **output_args)
 
@@ -188,7 +207,6 @@ class PNN(tf.keras.Model):
             inputs[k] = in_layer 
 
         return inputs
-
 
     @tf.function
     def train_step(self, batch):
@@ -251,3 +269,21 @@ class PNN(tf.keras.Model):
     @staticmethod
     def inputs_from_shapes(shapes: Dict[str, tuple]) -> Dict[str, Input]:
         return {name: Input(shape=shape, name=name) for name, shape in shapes.items()}
+
+    @staticmethod
+    def _get_conditioning(method: str) -> Layer:
+        method = method.lower()
+
+        if method == 'concat':
+            return tf.keras.layers.concatenate
+
+        if method in ['bias', 'biasing']:
+            return my_layers.ConditionalBiasing()
+
+        if method in ['scale', 'scaling']:
+            return my_layers.ConditionalScaling()
+
+        if method == 'affine':
+            return my_layers.AffineConditioning()
+
+        raise ValueError(f'No conditioning method named: "{method}". Try one of [concat, bias, scale, affine]')

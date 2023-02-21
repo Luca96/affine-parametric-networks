@@ -127,7 +127,7 @@ class BalancedSequence(tf.keras.utils.Sequence):
                  mass: list = None, all_bkg=False, seed=utils.SEED):
         assert batch_size >= 1
         
-        mA = data.columns['mA']
+        mA = data.columns['mass']
         columns = features + [mA, data.columns['label']]
         
         if isinstance(mass, (list, np.ndarray)):
@@ -201,11 +201,11 @@ class UniformSequence(BalancedSequence):
     def __init__(self, *args, interval=(100, 2000), **kwargs):
         super().__init__(*args, **kwargs)
         
-        # sampling interval for mA
+        # sampling interval for mass
         self.interval = interval
     
     def __getitem__(self, idx):
-        # sample signal for each mA
+        # sample signal for each mass
         z = [np_sample(sig, amount=self.sig_batch, generator=self.gen) for sig in self.signals.values()]
         
         # sample from all bkg
@@ -218,7 +218,7 @@ class UniformSequence(BalancedSequence):
         m = z[:, -2]
         y = z[:, -1]
         
-        # sample mass (from signal's mA) for background events -> uses all background events
+        # sample mass (from signal's mass) for background events -> uses all background events
         mask = y == 0.0
         m[mask] = self.gen.uniform(low=self.interval[0], high=self.interval[1], size=np.sum(mask))
         
@@ -237,7 +237,7 @@ class TrainingSequence(tf.keras.utils.Sequence):
         assert batch_size >= 1
 
         # retrieve columns
-        mA = columns['mA']
+        mA = columns['mass']
         columns = features + [mA, columns['label']]
 
         self.indices = {'features': -2, 'mass': -2, 'label': -1}
@@ -274,6 +274,10 @@ class TrainingSequence(tf.keras.utils.Sequence):
 
     def __len__(self):
         return len(self.data) // self.batch_size
+
+    def on_epoch_end(self):
+        if not getattr(self, 'is_validation', False):
+            self.gen.shuffle(self.data)
 
     def __getitem__(self, idx):
         start_idx = idx * self.batch_size
@@ -319,6 +323,7 @@ class TrainingSequence(tf.keras.utils.Sequence):
         valid_seq = cls(signal=valid[0], background=valid[1], columns=dataset.columns, 
                         batch_size=int(eval_batch), features=features, sample_mass=False,
                         uniform_mass=None, **kwargs)
+        valid_seq.is_validation = True
 
         # return tf.Datasets
         return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]

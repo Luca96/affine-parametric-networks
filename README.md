@@ -16,7 +16,16 @@ We also demonstrate the effectiveness of our *balanced training* procedure, in w
 
 With our proposed improvements, we are able to achieve better *classification* and *interpolation* performance:
 
-![results](src/results.png) 
+![results](src/results.png)
+
+**UPDATE 25/02/2023:** added new results about the impact of the *conditioning mechanism*, used when building a pNN to combine 
+the features with the physics parameter.
+
+![conditioning-interpolation](src/conditioning_interp.png)
+
+With an interpolation test we found out that both *biasing* and *affine* conditioning mechanisms are robust (i.e. able to 
+generalize on the missing mass points) and performant (i.e. achieve high AUC.) Also the best results are achieved when 
+the conditioning is performed on *all* layers.
 
 ---
 ## Installation
@@ -53,7 +62,7 @@ The repository is organized as follows:
 * `hep-training.ipynb`: training and evaluation of pNNs for `HEPMASS`.
 * `hep-imbalanced.ipynb`: construction of `HEPMASS-IMB`, also with training and evaluation of pNNs on it.
 * `mass_representation.ipynb`: contains some t-SNE visualization of the learned internal representation of the trained model.
-
+* `conditioning.ipynb` and `conditioning-interpolation.ipynb`: are about studying the impact of both the type of conditioning mechanism and at which place of the network happens.
 
 ---
 

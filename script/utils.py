@@ -222,6 +222,39 @@ def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights', m
     model.load_weights(files[-1])
 
 
+def delete_checkpoints(path: str, base='weights', mode='max'):
+    """Keeps only the best checkpoint while deleting the others"""
+    path = os.path.join(base, path)
+
+    # list all files in directory
+    files = os.listdir(path)
+
+    # split into (path, ext) tuples
+    files = [os.path.splitext(os.path.join(path, fname)) for fname in files]
+
+    # keep only weights files
+    files = filter(lambda x: 'data-' in x[1], files)
+
+    # from tuples get only path; remove ext
+    files = map(lambda x: x[0], files)
+
+    # zip files with metric value
+    files_and_metric = map(lambda x: (x, float(x.split('-')[-1])), files)
+
+    # sort by metric value
+    files = sorted(files_and_metric, key=lambda x: x[-1], reverse=mode.lower() == 'min')
+    files = map(lambda x: x[0], files)
+    files = list(files)
+
+    # load the best weights
+    print(f'Keep "{files[-1]}"')
+
+    for f in files[:-1]:
+        os.remove(f + '.index')
+        os.remove(f + '.data-00000-of-00001')
+        print(f'Deleted {f}.')
+
+
 def get_checkpoint(path: str, monitor='val_auc'):
     path = os.path.join('weights', path, 'weights-{epoch:02d}-' + f'\u007b{monitor}:.3f\u007d')
 

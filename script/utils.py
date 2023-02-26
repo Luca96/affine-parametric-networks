@@ -6,10 +6,9 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import scipy
 
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE, Isomap, SpectralEmbedding, LocallyLinearEmbedding
+from sklearn.manifold import TSNE, Isomap
 
 from tensorflow.keras.callbacks import ModelCheckpoint
 
@@ -50,40 +49,6 @@ def tf_global_norm(tensors: list, **kwargs):
     norms = [tf.norm(x, **kwargs) for x in tensors]
     return tf.sqrt(tf.reduce_sum([norm * norm for norm in norms]))
 
-
-def tf_jensen_shannon_divergence(p, q):
-    """Jensen-Shannon Divergence: JS(p || q) = 1/2 KL(p || m) + 1/2 KL(q || m)
-        - Source: https://en.wikipedia.org/wiki/Jensen%E2%80%93Shannon_divergence
-    """
-    m = (p + q) * 0.5
-    
-    return 0.5 * tf.keras.losses.kld(p, m) + \
-           0.5 * tf.keras.losses.kld(q, m)
-
-
-def tf_jensen_shannon_distance(p, q):
-    jsd = tf_jensen_shannon_divergence(p, q)
-    return tf.sqrt(tf.math.abs(jsd))
-
-
-def integral_area(x: list, y: list, degree=None, scale_x=False):
-    """First fits the given coordinates (`x`, `y`) with np.Polynomial, then integrates 
-       it to compute the area"""
-    assert len(x) == len(y)
-    
-    if scale_x:
-        x = x / np.max(x)
-    
-    domain = (np.min(x), np.max(x))
-    degree = len(y) - 1 if degree is None else int(degree)
-    
-    # fit curve to given (x, y) points
-    poly = np.polynomial.Polynomial.fit(x, y, deg=degree, domain=domain)
-    
-    # compute area by numerical integration
-    area, err = scipy.integrate.quad(poly, a=domain[0], b=domain[1])
-    return area, err, poly
-    
 
 def free_mem():
     return gc.collect()
@@ -129,24 +94,28 @@ def assert_2d_array(x, last_dim=2):
     assert x.shape[-1] == last_dim
 
 
-def plot_history(history, cols: int, rows: int, title: str, figsize=(30, 20), **kwargs):
-    fig, axes = plt.subplots(cols, rows, figsize=figsize)
-    fig.suptitle(title)
-    
-    df = pd.DataFrame(history.history)
+def plot_history(h, keys: list, rows=2, cols=2, size=8):
+    """Plots the training history of a keras model"""
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * size, rows * size))
+    axes = np.reshape(axes, newshape=[-1])
 
-    val_columns = list(filter(lambda x: 'val_' in x, df.columns))
-    plt_columns = list(map(lambda x: x[x.find('_') + 1:], val_columns))
-    
-    for i, axis in enumerate(axes.flat):
-        cols = [plt_columns[i], val_columns[i]]
-        
-        axis.plot(df[cols])
-        axis.set_title(cols[0])
-        axis.legend(cols, loc='best')
-    
-        if i + 1 >= len(val_columns):
-            break
+    for ax, k in zip(axes, keys):
+        ax.plot(h.epoch, h.history[k], marker='o', markersize=10, label='train')
+
+        if f'val_{k}' in h.history:
+            ax.plot(h.epoch, h.history[f'val_{k}'], marker='o', markersize=10, label='valid')
+
+        ax.set_xlabel('# Epoch', fontsize=20)
+        ax.set_ylabel(k.upper(), rotation="vertical", fontsize=20)
+
+        ax.tick_params(axis='x', labelsize=20)
+        ax.tick_params(axis='y', labelsize=20)
+
+        ax.grid(alpha=0.5, linestyle='dashed')
+        ax.legend(loc='best')
+
+    fig.tight_layout()
+    plt.show()
 
 
 def compare_plot(mass, size=(12, 10), title='Comparison', x_label='x', y_label='y', legend='best', 
@@ -222,6 +191,39 @@ def load_from_checkpoint(model: tf.keras.Model, path: str, base_dir='weights', m
     model.load_weights(files[-1])
 
 
+def delete_checkpoints(path: str, base='weights', mode='max'):
+    """Keeps only the best checkpoint while deleting the others"""
+    path = os.path.join(base, path)
+
+    # list all files in directory
+    files = os.listdir(path)
+
+    # split into (path, ext) tuples
+    files = [os.path.splitext(os.path.join(path, fname)) for fname in files]
+
+    # keep only weights files
+    files = filter(lambda x: 'data-' in x[1], files)
+
+    # from tuples get only path; remove ext
+    files = map(lambda x: x[0], files)
+
+    # zip files with metric value
+    files_and_metric = map(lambda x: (x, float(x.split('-')[-1])), files)
+
+    # sort by metric value
+    files = sorted(files_and_metric, key=lambda x: x[-1], reverse=mode.lower() == 'min')
+    files = map(lambda x: x[0], files)
+    files = list(files)
+
+    # load the best weights
+    print(f'Keep "{files[-1]}"')
+
+    for f in files[:-1]:
+        os.remove(f + '.index')
+        os.remove(f + '.data-00000-of-00001')
+        print(f'Deleted {f}.')
+
+
 def get_checkpoint(path: str, monitor='val_auc'):
     path = os.path.join('weights', path, 'weights-{epoch:02d}-' + f'\u007b{monitor}:.3f\u007d')
 
@@ -237,9 +239,7 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
     opt = kwargs.pop('optimizer', {})
     lr = kwargs.pop('lr', 1e-3)
     compile_args = kwargs.pop('compile', {})
-
     monitor = kwargs.pop('monitor', 'val_auc')
-    ams_args = kwargs.pop('ams', {})
 
     units = [300, 150, 100, 50] if units is None else units
     
@@ -254,9 +254,7 @@ def get_compiled_model(cls, data_or_num_features, units: list = None, save: str 
 
     model.compile(lr=lr, **opt, **compile_args,
                   metrics=['binary_accuracy', AUC(name='auc', curve=str(curve).upper()), 
-                           Precision(name='precision'), Recall(name='recall'),
-                           # SignificanceRatio(name='ams', **ams_args),
-                           ])
+                           Precision(name='precision'), Recall(name='recall')])
 
     if isinstance(save, str):
         model.save_path = save

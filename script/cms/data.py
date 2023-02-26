@@ -180,9 +180,8 @@ class AbstractSequence(tf.keras.utils.Sequence):
         return [seq.to_tf_dataset() for seq in [train_seq, valid_seq]]
 
 
-# TODO: rename to `IdenticalSequence` or `FixedSequence`?
-class OneVsAllSequence(AbstractSequence):
-    """Implements the '1-vs-all' mass sampling strategy for 'same' distribution"""
+class IdenticalSequence(AbstractSequence):
+    """Implements the identical mass sampling strategy for mass feature assignment"""
     
     def __init__(self, signal: pd.DataFrame, background: pd.DataFrame, batch_size: int, 
                  features: list, **kwargs):
@@ -211,7 +210,7 @@ class OneVsAllSequence(AbstractSequence):
         m = z[:, -2].reshape(-1, 1)
         y = z[:, -1].reshape(-1, 1)
         
-        # sample mass for background (1-vs-all)
+        # sample mass for background (identical strategy)
         mask = y == 0.0
         m[mask] = self.gen.choice(self.mass, size=np.sum(mask), replace=True)
         

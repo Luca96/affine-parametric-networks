@@ -23,6 +23,9 @@ def process(src: str, dst: str):
 
     # save the new csv
     print(f'> saving the new csv at "{dst}"')
+    folder, _ = os.path.split(dst)
+    os.makedirs(folder, exist_ok=True)
+
     df.to_csv(dst, index=False)
 
     print('> processing complete.')

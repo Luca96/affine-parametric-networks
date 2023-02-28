@@ -1,76 +1,34 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6453048.svg)](https://doi.org/10.5281/zenodo.6453048)
 
-# Affine Parametric Neural Networks
+# Tutorial: Affine Parametric Neural Networks
 
-**Parametric Neural Networks** (pNNs) are a kind of neural networks, developed by [Baldi et al.](https://arxiv.org/pdf/1601.07913), which are mainly used for *signal-background classification* in High-Energy Physics (HEP). In our recent [paper](https://iopscience.iop.org/article/10.1088/2632-2153/ac917c), we propose various improvements to the original pNN, one of which is the *affine architecture* based on interleaving multiple **affine-conditioning layers**:
+**Parametric Neural Networks** (pNNs) are a kind of neural networks, developed by [Baldi et al.](https://arxiv.org/pdf/1601.07913), which are mainly used for *signal-background classification* in High-Energy Physics (HEP). In our recent [paper](https://iopscience.iop.org/article/10.1088/2632-2153/ac917c), we propose various improvements to the original pNN, 
+such as: 
+* The *affine architecture*: based on interleaving multiple **affine-conditioning layers**;
+* Guidelines on how to assign the *physics parameter* (e.g. the particle mass);
+* The *balanced training* procedure, in which we build balanced mini-batches by leveraging the structure of both the 
+signal and background.
 
-![affine-conditioning_layer](src/affine_layer.png)
-
-resulting in the following neural architecture (*dropout* is omitted), which we call the **AffinePNN**:
-
-![affine_architecture](src/affine_arch.png)
-
-Each affine-conditioning layer combines *conditional scaling* with *conditional biasing*, implementing the following operation:
-$$z = x\odot s_\phi(m) + b_\psi(m),$$
-where $z$ is the *conditioned representation*, $x$ the input features (or the output of intermediate hidden layer), $m$ is the mass feature (or physics parameter, in general), and both $s_\phi$ and $b_\psi$ denote two independent linear layers.
-
-We also demonstrate the effectiveness of our *balanced training* procedure, in which we build balanced mini-batches by leveraging the structure of both the signal and background, as well as discussing the possible choices to distribute the background's mass.
-
-### Results
-With our proposed improvements, we are able to achieve better *classification* and *interpolation* performance:
-
-![results](src/results.png)
-
-
-Interpolation:
-
-![interpolation](src/interpolation_results.png)
-
-* To assess interpolation, all the three parametric networks have been trained on 2 out of 5 mass points.
-* The missing mass hypotheses are: 750, 1000, and 1250 GeV.
-* As we can see, the `AffinePNN` (orange) is the best performer almost recovering the classification performance as if it were trained on all the data.
-* A pNN not always generalizes enough to enable interpolation: the green curve depicts a model that fails to classify samples at both 750 and 1000 GeV, due to insufficient regularization (e.g. lack of dropout), and wrong background's mass distribution. 
+This branch of the repo is about a **complete tutorial** on how to define, and apply pNNs: everything is described in 
+the `tutorial.ipynb` notebook.
 
 ---
-## Installation
+## Installation and Usage
 
-1. Clone the repository:
+0. Open a terminal: make sure to have both Python and Jupyter notebook (or lab) installed.
+1. Clone the repository (but only the `tutorial` branch):
 
    ```bash
-   git clone https://github.com/Luca96/affine-parametric-networks.git
+   git clone https://github.com/Luca96/affine-parametric-networks.git --branch tutorial
+   # if on Google Colab, use %cd
    cd affine-parametric-networks
    ```
 
-2. Install all the required libraries (usage of `virtualenv` is highly suggested):
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Download the `HEPMASS` dataset from [here](http://archive.ics.uci.edu/ml/datasets/hepmass): click on "data folder", then download and extract: `all_test.csv.gz` and `all_train.csv.gz`; the latter is only required for the notebook `hep-training.ipynb`. IMPORTANT: save the `.csv` files under the repository folder at `\data\hepmass`.
-
-3. Conversion of HEPMASS: some small changes are made to the original csv files of HEPMASS, you can find the procedure at the beginning of the notebook `HEPMASS.ipynb` or [here](https://zenodo.org/record/6453048).
-
-4. Download and extract our dataset `HEPMASS-IMB`, [here](https://zenodo.org/record/6453048): there are two files in total, `imbalanced_background.csv` and `imbalanced_signal.csv`. As before, save the `.csv` files within `\data\hepmass`.
-
-5. Now you're ready to run the notebooks, or to use the pretrained weights.
-
-### Project  Structure
-
-The repository is organized as follows:
-
-* `\script`: contains the source files used into the notebooks.
-* `\weights`: contains all the pretrained weights of our experiments; for `HEPMASS` (under `\hep`) and `HEPMASS-IMB` (under `\hep-imb`)
-* `\data`: should contain a folder `\hepmass` in which the dataset (i.e. `.csv` files) are stored.
-* `HEPMASS.ipynb`: data exploration of the `HEPMASS` dataset.
-* `hep-training.ipynb`: training and evaluation of pNNs for `HEPMASS`.
-* `hep-imbalanced.ipynb`: construction of `HEPMASS-IMB`, also with training and evaluation of pNNs on it.
-* `mass_representation.ipynb`: contains some t-SNE visualization of the learned internal representation of the trained model.
-
+2. Just run the `tutorial.ipynb` notebook; that's it.
 
 ---
 
-## Citation
+## How to Cite
 
 If you use the code and/or the dataset we provide for your own project or research, please cite our paper:
 

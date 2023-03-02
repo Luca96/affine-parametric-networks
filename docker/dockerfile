@@ -1,0 +1,37 @@
+FROM ubuntu:focal
+
+#Create USER
+ARG USERNAME=user
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN apt-get -y update && apt-get install -y wget && apt-get install -y unzip \
+    && apt-get install -y git && apt-get install -y pip
+
+#Install required libraries
+COPY requirements.txt /tmp/
+RUN pip install -r /tmp/requirements.txt
+
+#Download HEPMASS dataset
+RUN mkdir -p data/hepmass
+RUN wget -q -O data/all_test.csv.gz http://archive.ics.uci.edu/ml/machine-learning-databases/00347/all_test.csv.gz
+RUN gzip -d data/all_test.csv.gz
+COPY process_csv.py /tmp/
+RUN python3 /tmp/process_csv.py -d data/all_test.csv data/hepmass/test.csv
+
+#Download HEPMASS-IMB dataset
+RUN mkdir -p data/hep-imb
+RUN wget -q -O data/hepmass-imb.zip https://zenodo.org/record/6453048/files/hepmass-imb.zip
+RUN unzip data/hepmass-imb.zip -d data/hep-imb && rm data/hepmass-imb.zip
+
+
+# Create the user
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
+
+USER $USERNAME
+
+#move bashrc to user
+
+RUN rm /home/$USERNAME/.bashrc
+COPY assets/.bashrc /home/$USERNAME/.bashrc

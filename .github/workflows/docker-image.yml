@@ -33,4 +33,4 @@ jobs:
         with:
           push: true
           file: docker/Dockerfile
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:${{ env.RELEASE_VERSION }}
+          tags: tommaso93/${{ github.event.repository.name }}:latest,tommaso93/${{ github.event.repository.name }}:${{ env.RELEASE_VERSION }}

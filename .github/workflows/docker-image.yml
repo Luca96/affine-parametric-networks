@@ -34,4 +34,5 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           push: true
+          file: docker/Dockerfile
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest,${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:${{ env.RELEASE_VERSION }}

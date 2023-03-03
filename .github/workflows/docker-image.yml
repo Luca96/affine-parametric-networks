@@ -3,8 +3,6 @@ name: Build image and push on dockerhub
 on:
   push:
     tags: [ "v*.*.*" ]
-  pull_request:
-    branches: [ "tutorial" ]
 
 jobs:
 

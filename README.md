@@ -15,6 +15,7 @@ the `tutorial.ipynb` notebook.
 ---
 ## Installation and Usage
 
+### Manual installation
 0. Open a terminal: make sure to have both Python and Jupyter notebook (or lab) installed.
 1. Clone the repository (but only the `tutorial` branch):
 
@@ -25,6 +26,29 @@ the `tutorial.ipynb` notebook.
    ```
 
 2. Just run the `tutorial.ipynb` notebook; that's it.
+
+### Docker image installation
+In alternative, it is possible to run the tutorial using the Docker image provided. **The image contains all the installed dependencies, and datasets used for training and test of the Affine Parametric Neural Network**. 
+Make sure you have Docker installed on your machine: https://docs.docker.com/get-docker/ 
+
+Simply run the following command on your terminal, to start the tutorial:
+
+0. Clone the repository (but only the `tutorial` branch):
+
+   ```bash
+   git clone https://github.com/Luca96/affine-parametric-networks.git --branch tutorial
+   # if on Google Colab, use %cd
+   cd affine-parametric-networks
+   ```
+1. Run the container: 
+   ```bash
+   docker run -it -d -v ${PWD}:/affine-parametric-networks -w /affine-parametric-networks -p 8888:8888 --name tutorial tommaso93/affine-parametric-networks
+   ```
+1. Execute it: 
+   ```bash
+   docker exec -it tutorial jupyter notebook --ip 0.0.0.0 --no-browser
+   ```
+2. Copy one of the URLs given in the terminal output, and paste it on your browser. Then run the `tutorial.ipynb` notebook (skipping the installation part).
 
 ---
 

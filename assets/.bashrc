@@ -101,8 +101,6 @@ alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo
 # ~/.bash_aliases, instead of adding them here directly.
 # See /usr/share/doc/bash-doc/examples in the bash-doc package.
 
-alias jupyter-notebook="jupyter notebook --ip 0.0.0.0 --no-browser"
-
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
